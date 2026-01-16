@@ -25,7 +25,7 @@ LOGERROR = xbmc.LOGERROR
 LOGWARNING = xbmc.LOGWARNING
 LOGINFO = xbmc.LOGINFO if six.PY3 else xbmc.LOGNOTICE
 
-addonsmr = xbmcaddon.Addon('script.module.resolveurl')
+addonsmr = xbmcaddon.Addon('script.module.resolveurl.fork')
 
 
 def execute_jsonrpc(command):

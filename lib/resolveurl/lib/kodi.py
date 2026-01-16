@@ -25,7 +25,7 @@ import time
 from resolveurl.lib import strings
 from resolveurl.lib import CustomProgressDialog
 
-addon = xbmcaddon.Addon('script.module.resolveurl')
+addon = xbmcaddon.Addon('script.module.resolveurl.fork')
 get_setting = addon.getSetting
 show_settings = addon.openSettings
 sleep = xbmc.sleep
