@@ -1,19 +1,7 @@
 """
     Plugin for ResolveURL
     Copyright (C) 2023 gujal
-
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    Updated to handle URLs from doramasonline.org /aviso/ wrapper.
 """
 
 import re
@@ -25,19 +13,46 @@ from resolveurl import common
 class SecVideoResolver(ResolveUrl):
     name = 'SecVideo'
     domains = ['www.secvideo1.online', 'secvideo1.online', 'csst.online']
+    # URL real: https://csst.online/embed/977136  ou  https://csst.online/embed/799756/
     pattern = r'(?://|\.)((?:(?:www\.)?secvideo1|csst)\.online)/(?:videos|embed)/([A-Za-z0-9]+)'
 
     def get_media_url(self, host, media_id):
         web_url = self.get_url(host, media_id)
-        headers = {'User-Agent': common.FF_USER_AGENT}
+        headers = {
+            'User-Agent': common.FF_USER_AGENT,
+            'Referer': f'https://{host}/',
+            'Accept': '*/*',
+        }
         html = self.net.http_GET(web_url, headers=headers).content
-        srcs = re.search(r'Playerjs.+?file:"([^"]+)', html, re.DOTALL)
-        if srcs:
-            srcs = srcs.group(1).split(',')
-            srcs = [(x.split(']')[0][1:], x.split(']')[1]) for x in srcs]
-            return helpers.pick_source(helpers.sort_sources_list(srcs)) + helpers.append_headers(headers)
+        if isinstance(html, bytes):
+            html = html.decode('utf-8', errors='ignore')
 
-        raise ResolverError('No playable video found.')
+        # Playerjs com múltiplas qualidades: [720p]url,[480p]url,...
+        srcs = re.search(r'Playerjs.+?file\s*:\s*["\']([^"\']+)', html, re.DOTALL)
+        if srcs:
+            file_val = srcs.group(1)
+            if '[' in file_val:
+                parts = file_val.split(',')
+                quality_list = []
+                for part in parts:
+                    part = part.strip()
+                    lm = re.match(r'\[([^\]]+)\](.+)', part)
+                    if lm:
+                        quality_list.append((lm.group(1), lm.group(2)))
+                if quality_list:
+                    return helpers.pick_source(helpers.sort_sources_list(quality_list)) + helpers.append_headers(headers)
+            else:
+                return file_val + helpers.append_headers(headers)
+
+        # Fallback: sources/file (JWPlayer)
+        match = re.search(
+            r'sources\s*:\s*\[\s*\{[^}]*?["\']file["\']\s*:\s*["\']([^"\']+)["\']',
+            html, re.IGNORECASE | re.DOTALL
+        )
+        if match:
+            return match.group(1).strip() + helpers.append_headers(headers)
+
+        raise ResolverError('SecVideo: nenhum vídeo encontrado.')
 
     def get_url(self, host, media_id):
         return self._default_get_url(host, media_id, template='https://{host}/embed/{media_id}/')
