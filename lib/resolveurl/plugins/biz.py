@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-
 from resolveurl.lib import helpers
 from resolveurl import common
 from resolveurl.resolver import ResolveUrl, ResolverError
@@ -11,11 +10,8 @@ class AssistirBizResolver(ResolveUrl):
 
     pattern = r'(?://|\.)(assistir\.biz)/(.+)'
 
-    def __init__(self):
-        self.net = common.Net()
-
     def get_media_url(self, host, media_id):
-        web_url = 'https://%s/%s' % (host, media_id)
+        web_url = f"https://{host}/{media_id}"
 
         headers = {'User-Agent': common.FF_USER_AGENT}
 
@@ -26,7 +22,7 @@ class AssistirBizResolver(ResolveUrl):
 
             response = self.net.http_GET(web_url, headers=headers, redirect=False)
             if response.getcode() not in [200, 301, 302]:
-                raise ResolverError('Página retornou status %s' % response.getcode())
+                raise ResolverError(f'Página retornou status {response.getcode()}')
 
             html = response.content
 
@@ -42,6 +38,6 @@ class AssistirBizResolver(ResolveUrl):
                     return match.group(1)
 
         except Exception as e:
-            raise ResolverError('Falha ao resolver %s: %s' % (web_url, str(e)))
+            raise ResolverError(f'Falha ao resolver {web_url}: {str(e)}')
 
-        raise ResolverError('Nenhum link MediaFire encontrado em %s' % web_url)
+        raise ResolverError(f'Nenhum link MediaFire encontrado em {web_url}')
