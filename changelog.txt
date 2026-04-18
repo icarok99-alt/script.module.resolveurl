@@ -1,15 +1,14 @@
-Version 5.1.188 (Dec 07, 2025)
+Version 5.1.195 (Mar 30, 2026)
 - Code Base Changes:
     - None
 
 - Resolvers Added:
-    - bigshare
+    - goodstreamcc
 
 - Resolvers Fixed/Updated:
-    - doodstream
-    - savefiles
-    - streamup
-    - voe
+    - filelions
+    - gofile
+    - videa
 
 - Resolvers Removed
     - None
