@@ -7,38 +7,61 @@ from resolveurl.lib import helpers
 from resolveurl import common
 
 
-class SkApiAlibabaCDNResolver(ResolveGeneric):
-    name = "SkApiAlibabaCDN"
-    domains = ["sk-api.alibabacdn.net"]
-    # URL real: https://sk-api.alibabacdn.net/?id=9rFrGnw7rmED1SS8tHrXy-Boyfriend-on-Demand/1
-    pattern = r'(?://|\.)(sk-api\.alibabacdn\.net)/?\?(.+)'
+class AlibabaCDNResolver(ResolveGeneric):
+    name = "AlibabaCDN"
+    domains = [
+        "litch.alibabacdn.net",
+        "sk-dofix.alibabacdn.net",
+        "sk-api.alibabacdn.net"
+    ]
+
+    pattern = r'(?://|\.)((?:litch|sk-dofix|sk-api)\.alibabacdn\.net)/?\??(.+)'
 
     def get_media_url(self, host, media_id):
+        if media_id.startswith('?'):
+            media_id = media_id[1:]
+
         embed_url = f'https://{host}/?{media_id}'
 
-        headers = {
-            'User-Agent': common.RAND_UA,
-            'Referer': 'https://doramasonline.org/',
-            'Origin': f'https://{host}',
-            'Accept': '*/*',
-            'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-        }
+        if host == "litch.alibabacdn.net":
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                'Referer': 'https://litch.alibabacdn.net/',
+                'Origin': 'https://litch.alibabacdn.net',
+                'Accept': '*/*',
+                'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+            }
+        else:
+            headers = {
+                'User-Agent': common.RAND_UA,
+                'Referer': 'https://doramasonline.org/',
+                'Origin': f'https://{host}',
+                'Accept': '*/*',
+                'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+            }
 
         html = self.net.http_GET(embed_url, headers=headers).content
         if isinstance(html, bytes):
             html = html.decode('utf-8', errors='ignore')
 
         match = re.search(
-            r'sources\s*:\s*\[\s*\{[^}]*?["\']file["\']\s*:\s*["\']([^"\']+)["\']',
+            r'sources\s*:\s*\[\s*\{[^}]*["\']file["\']\s*:\s*["\']([^"\']+)["\']',
             html, re.IGNORECASE | re.DOTALL
         )
-        if not match:
-            match = re.search(r'["\']file["\']\s*:\s*["\']([^"\']+)["\']', html, re.IGNORECASE)
 
         if not match:
-            raise Exception('SkApiAlibabaCDN: stream não encontrado')
+            match = re.search(
+                r'["\']file["\']\s*:\s*["\']([^"\']+)["\']',
+                html, re.IGNORECASE
+            )
+
+        if not match:
+            raise Exception(f'AlibabaCDN ({host}): stream não encontrado')
 
         stream_url = match.group(1).strip()
+
         if not stream_url.startswith(('http://', 'https://')):
             stream_url = urljoin(embed_url, stream_url)
 
