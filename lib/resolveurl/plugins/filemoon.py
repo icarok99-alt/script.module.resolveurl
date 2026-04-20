@@ -23,6 +23,8 @@ from resolveurl.lib import helpers
 from resolveurl import common
 from resolveurl.resolver import ResolveUrl, ResolverError
 
+import cloudscraper
+
 
 class FileMoonResolver(ResolveUrl):
     name = 'FileMoon'
@@ -36,6 +38,13 @@ class FileMoonResolver(ResolveUrl):
               r'\.(?:sx|to|s?k?in|link|nl|wf|com|eu|art|pro|cc|xyz|org|fun|net|lol|online))' \
               r'/(?:e|d|download)/([0-9a-zA-Z$:/._-]+)'
 
+    def __init__(self):
+        super().__init__()
+        self.scraper = cloudscraper.create_scraper(
+            browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False},
+            delay=4
+        )
+
     def get_media_url(self, host, media_id):
         if '$$' in media_id:
             media_id, referer = media_id.split('$$')
@@ -47,22 +56,25 @@ class FileMoonResolver(ResolveUrl):
             media_id = media_id.split('/')[0]
 
         web_url = self.get_url(host, media_id)
-        headers = {'User-Agent': common.RAND_UA,
-                   'Cookie': '__ddg1_=PZYJSmASXDCQGP6auJU9; __ddg2_=hxAe1bBqtlYhVSik'}
+        headers = {
+            'User-Agent': common.RAND_UA,
+            'Cookie': '__ddg1_=PZYJSmASXDCQGP6auJU9; __ddg2_=hxAe1bBqtlYhVSik'
+        }
         if referer:
             headers.update({'Referer': referer})
 
-        html = self.net.http_GET(web_url, headers=headers).content
+        html = self.scraper.get(web_url, headers=headers, timeout=25).text
         if '<h1>Page not found</h1>' in html or '<h1>This video cannot be watched under this domain</h1>' in html:
             web_url = web_url.replace('/e/', '/d/')
-            html = self.net.http_GET(web_url, headers=headers).content
+            html = self.scraper.get(web_url, headers=headers, timeout=25).text
+
         r = re.search(r'<iframe\s*src="([^"]+)', html, re.DOTALL)
         if r:
             headers.update({'accept-language': 'en-US,en;q=0.9',
                             'sec-fetch-dest': 'iframe',
                             'Referer': web_url})
             web_url = r.group(1)
-            html = self.net.http_GET(web_url, headers=headers).content
+            html = self.scraper.get(web_url, headers=headers, timeout=25).text
 
         html += helpers.get_packed_data(html)
         r = re.search(r'var\s*postData\s*=\s*(\{.+?\})', html, re.DOTALL)
@@ -78,14 +90,14 @@ class FileMoonResolver(ResolveUrl):
                 'Origin': urllib_parse.urljoin(web_url, '/')[:-1],
                 'X-Requested-With': 'XMLHttpRequest'
             })
-            edata = self.net.http_POST(urllib_parse.urljoin(web_url, '/dl'), pdata, headers=headers).content
+            edata = self.scraper.post(urllib_parse.urljoin(web_url, '/dl'), data=pdata, headers=headers, timeout=25).text
             edata = json.loads(edata)[0]
             surl = helpers.tear_decode(edata.get('file'), edata.get('seed'))
             if surl:
                 headers.pop('X-Requested-With')
                 headers.pop('Cookie')
-                headers["verifypeer"] = "false"
-                return surl + helpers.append_headers(headers)
+                headers['verifypeer'] = 'false'
+                return surl + helpers.append_headers(headers), []
         else:
             r = re.search(r'sources:\s*\[{\s*file:\s*"([^"]+)', html, re.DOTALL)
             if r:
@@ -93,9 +105,9 @@ class FileMoonResolver(ResolveUrl):
                 headers.update({
                     'Referer': web_url,
                     'Origin': urllib_parse.urljoin(web_url, '/')[:-1],
-                    "verifypeer": "false"
+                    'verifypeer': 'false'
                 })
-                return r.group(1) + helpers.append_headers(headers)
+                return r.group(1) + helpers.append_headers(headers), []
 
         raise ResolverError('Video not found')
 
