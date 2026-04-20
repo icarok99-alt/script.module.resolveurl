@@ -93,9 +93,10 @@ class DoodStreamResolver(ResolveUrl):
                 vid_src = html.strip() + helpers.append_headers(headers)
             else:
                 vid_src = self.dood_decode(html) + token + str(int(time.time() * 1000)) + helpers.append_headers(headers)
+
             if subs:
                 return vid_src, subtitles
-            return vid_src, []
+            return vid_src
 
         raise ResolverError('Video Link Not Found')
 
