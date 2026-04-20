@@ -61,7 +61,7 @@ class DoodStreamResolver(ResolveUrl):
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
         }
 
-        r = self.scraper.get(web_url, headers=headers, timeout=25)
+        r = self.scraper.get(web_url, headers=headers, timeout=10)
         if r.url != web_url:
             host = re.findall(r'(?://|\.)([^/]+)', r.url)[0]
             web_url = self.get_url(host, media_id)
@@ -71,10 +71,10 @@ class DoodStreamResolver(ResolveUrl):
         match = re.search(r'<iframe\s*src="([^"]+)', html)
         if match:
             url = urllib_parse.urljoin(web_url, match.group(1))
-            html = self.scraper.get(url, headers=headers, timeout=25).text
+            html = self.scraper.get(url, headers=headers, timeout=10).text
         else:
             url = web_url.replace('/d/', '/e/')
-            html = self.scraper.get(url, headers=headers, timeout=25).text
+            html = self.scraper.get(url, headers=headers, timeout=10).text
 
         if subs:
             subtitles = {}
@@ -88,7 +88,7 @@ class DoodStreamResolver(ResolveUrl):
         if match:
             token = match.group(2).strip()
             url = urllib_parse.urljoin(web_url, match.group(1))
-            html = self.scraper.get(url, headers=headers, timeout=25).text
+            html = self.scraper.get(url, headers=headers, timeout=10).text
             if 'cloudflarestorage.' in html.lower():
                 vid_src = html.strip() + helpers.append_headers(headers)
             else:

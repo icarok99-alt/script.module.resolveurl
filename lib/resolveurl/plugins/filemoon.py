@@ -63,10 +63,10 @@ class FileMoonResolver(ResolveUrl):
         if referer:
             headers.update({'Referer': referer})
 
-        html = self.scraper.get(web_url, headers=headers, timeout=25).text
+        html = self.scraper.get(web_url, headers=headers, timeout=10).text
         if '<h1>Page not found</h1>' in html or '<h1>This video cannot be watched under this domain</h1>' in html:
             web_url = web_url.replace('/e/', '/d/')
-            html = self.scraper.get(web_url, headers=headers, timeout=25).text
+            html = self.scraper.get(web_url, headers=headers, timeout=10).text
 
         r = re.search(r'<iframe\s*src="([^"]+)', html, re.DOTALL)
         if r:
@@ -74,7 +74,7 @@ class FileMoonResolver(ResolveUrl):
                             'sec-fetch-dest': 'iframe',
                             'Referer': web_url})
             web_url = r.group(1)
-            html = self.scraper.get(web_url, headers=headers, timeout=25).text
+            html = self.scraper.get(web_url, headers=headers, timeout=10).text
 
         html += helpers.get_packed_data(html)
         r = re.search(r'var\s*postData\s*=\s*(\{.+?\})', html, re.DOTALL)
@@ -90,7 +90,7 @@ class FileMoonResolver(ResolveUrl):
                 'Origin': urllib_parse.urljoin(web_url, '/')[:-1],
                 'X-Requested-With': 'XMLHttpRequest'
             })
-            edata = self.scraper.post(urllib_parse.urljoin(web_url, '/dl'), data=pdata, headers=headers, timeout=25).text
+            edata = self.scraper.post(urllib_parse.urljoin(web_url, '/dl'), data=pdata, headers=headers, timeout=10).text
             edata = json.loads(edata)[0]
             surl = helpers.tear_decode(edata.get('file'), edata.get('seed'))
             if surl:
