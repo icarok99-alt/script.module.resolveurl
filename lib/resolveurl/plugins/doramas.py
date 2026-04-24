@@ -24,10 +24,10 @@ from resolveurl import common
 class DoramasOnlineResolver(ResolveGeneric):
     name = "DoramasOnline"
     domains = ["doramasonline.org"]
-    pattern = r'(?://|\.)((?:doramasonline\.org))/cdn9/odacdn/v2/\?id=([^&]+)'
+    pattern = r'(?://|\.)((?:doramasonline\.org))(/cdn9/(?:odacdn/v2|dc)/\?id=[^&\'"]+)'
 
     def get_media_url(self, host, media_id):
-        embed_url = f'https://{host}/cdn9/odacdn/v2/?id={media_id}'
+        embed_url = f'https://{host}{media_id}'
 
         headers = {
             'User-Agent': common.RAND_UA,
@@ -41,15 +41,14 @@ class DoramasOnlineResolver(ResolveGeneric):
         if isinstance(html, bytes):
             html = html.decode('utf-8', errors='ignore')
 
-        match = re.search(
-            r'sources\s*:\s*\[\s*\{\s*["\']file["\']\s*:\s*["\']([^"\']+\.m3u8[^"\']*)["\']',
+        candidates = re.findall(
+            r'["\']file["\']\s*:\s*["\']([^"\']+(?:\.m3u8|\.mp4)[^"\']*)["\']',
             html
         )
 
-        if not match:
-            raise Exception('DoramasOnline: HLS não encontrado no HTML')
+        if not candidates:
+            raise Exception('DoramasOnline: nenhuma fonte de vídeo encontrada no HTML')
 
-        stream_url = match.group(1)
+        stream_url = next((u for u in candidates if '.m3u8' in u), candidates[0])
 
-        final_url = stream_url + helpers.append_headers(headers)
-        return final_url
+        return stream_url + helpers.append_headers(headers)
