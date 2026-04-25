@@ -24,8 +24,8 @@ from resolveurl.lib import helpers, jsunpack
 
 class AnimesDigitalResolver(ResolveUrl):
     name = 'AnimesDigital'
-    domains = ['animesdigital.org', 'api.anivideo.net']
-    pattern = r'(?://|\.)(animesdigital\.org|api\.anivideo\.net)/(.*)'
+    domains = ['api.anivideo.net']
+    pattern = r'(?://|\.)(api\.anivideo\.net)/(.*)'
 
     def get_media_url(self, host, media_id):
         headers = {
@@ -64,19 +64,12 @@ class AnimesDigitalResolver(ResolveUrl):
 
         content = html + unpacked
 
-        streams = re.findall(r'(https?://[^\s<>"\']+googlevideo\.com/videoplayback[^\s<>"\']*)', content)
-        if not streams:
-            streams = re.findall(r'(https?://[^\s<>"\']+\.(?:m3u8|mp4)[^\s<>"\']*)', content)
+        streams = re.findall(r'(https?://[^\s<>"\']+\.(?:m3u8|mp4)[^\s<>"\']*)', content)
 
         if not streams:
             raise ResolverError('Nenhum stream encontrado')
 
         stream_url = streams[0]
-        if 'googlevideo.com' in stream_url:
-            for s in streams:
-                if 'itag=22' in s:
-                    stream_url = s
-                    break
 
         final_headers = {
             'User-Agent': common.FF_USER_AGENT,
@@ -85,12 +78,6 @@ class AnimesDigitalResolver(ResolveUrl):
         }
 
         return stream_url + helpers.append_headers(final_headers)
-
-    def get_host_and_id(self, url):
-        r = re.search(self.pattern, url, re.I)
-        if r:
-            return r.group(1), r.group(2)
-        raise ValueError('URL não suportada')
 
     def get_url(self, host, media_id):
         return 'https://%s/%s' % (host, media_id)
