@@ -21,7 +21,9 @@ from resolveurl.resolver import ResolveUrl, ResolverError
 from resolveurl.lib import helpers
 import re
 import json
-from urllib import error as urllib_error, parse as urllib_parse, request as urllib_request
+from urllib.request import Request, urlopen
+from urllib.parse import unquote, unquote_plus, quote
+from urllib.error import HTTPError
 
 
 class GoogleResolver(ResolveUrl):
@@ -113,36 +115,36 @@ class GoogleResolver(ResolveUrl):
         token = token_match.group(1)
 
         try:
-            req = urllib_request.Request(blogger_url, headers=self.headers)
-            resp = urllib_request.urlopen(req)
+            req = Request(blogger_url, headers=self.headers)
+            resp = urlopen(req)
             page_text = resp.read().decode('utf-8', errors='ignore')
-        except urllib_error.HTTPError as e:
+        except HTTPError as e:
             raise ResolverError('Failed to load Blogger page (HTTP %s): %s' % (e.code, blogger_url))
         except Exception as e:
             raise ResolverError('Failed to load Blogger page: %s' % str(e))
 
         sid_match = re.search(r'"FdrFJe"\s*:\s*"([^"]+)"', page_text)
-        bh_match  = re.search(r'"cfb2h"\s*:\s*"([^"]+)"', page_text)
-        at_match  = re.search(r'"SNlM0e"\s*:\s*"([^"]+)"', page_text)
+        bh_match = re.search(r'"cfb2h"\s*:\s*"([^"]+)"', page_text)
+        at_match = re.search(r'"SNlM0e"\s*:\s*"([^"]+)"', page_text)
 
         if not sid_match or not bh_match:
             raise ResolverError('Failed to extract session params (FdrFJe/cfb2h) from Blogger page')
 
         sid = sid_match.group(1)
-        bh  = bh_match.group(1)
-        at  = at_match.group(1) if at_match else ''
+        bh = bh_match.group(1)
+        at = at_match.group(1) if at_match else ''
 
-        inner     = json.dumps([token, '', 0], separators=(',', ':'))
-        freq      = json.dumps([[['WcwnYd', inner, None, 'generic']]], separators=(',', ':'))
-        post_body = 'f.req=' + urllib_parse.quote(freq)
+        inner = json.dumps([token, '', 0], separators=(',', ':'))
+        freq = json.dumps([[['WcwnYd', inner, None, 'generic']]], separators=(',', ':'))
+        post_body = 'f.req=' + quote(freq)
         if at:
-            post_body += '&at=' + urllib_parse.quote(at)
+            post_body += '&at=' + quote(at)
 
         batch_url = (
             'https://www.blogger.com/_/BloggerVideoPlayerUi/data/batchexecute'
             '?rpcids=WcwnYd&source-path=%2Fvideo.g'
             '&f.sid={sid}&bl={bh}&hl=en-US&_reqid=100001&rt=c'
-        ).format(sid=urllib_parse.quote(sid), bh=urllib_parse.quote(bh))
+        ).format(sid=quote(sid), bh=quote(bh))
 
         batch_headers = dict(self.headers)
         batch_headers.update({
@@ -153,10 +155,10 @@ class GoogleResolver(ResolveUrl):
         })
 
         try:
-            req2 = urllib_request.Request(batch_url, data=post_body.encode('utf-8'), headers=batch_headers)
-            batch_resp = urllib_request.urlopen(req2)
+            req2 = Request(batch_url, data=post_body.encode('utf-8'), headers=batch_headers)
+            batch_resp = urlopen(req2)
             batch_body = batch_resp.read().decode('utf-8', errors='ignore')
-        except urllib_error.HTTPError as e:
+        except HTTPError as e:
             raise ResolverError('batchexecute request failed (HTTP %s)' % e.code)
         except Exception as e:
             raise ResolverError('batchexecute request failed: %s' % str(e))
@@ -283,7 +285,7 @@ class GoogleResolver(ResolveUrl):
                                 if isinstance(item3, list):
                                     for item4 in item3:
                                         if isinstance(item4, str):
-                                            item4 = urllib_parse.unquote(item4)
+                                            item4 = unquote(item4)
                                             for match in re.finditer('url=(?P<link>[^&]+).*?&itag=(?P<itag>[^&]+)', item4):
                                                 link = match.group('link')
                                                 itag = match.group('itag')
@@ -296,14 +298,14 @@ class GoogleResolver(ResolveUrl):
     def _parse_gdocs(self, html):
         urls = []
         if 'error' in html:
-            reason = urllib_parse.unquote_plus(re.findall('reason=([^&]+)', html)[0])
+            reason = unquote_plus(re.findall('reason=([^&]+)', html)[0])
             raise ResolverError(reason)
-        value = urllib_parse.unquote(re.findall('fmt_stream_map=([^&]+)', html)[0])
+        value = unquote(re.findall('fmt_stream_map=([^&]+)', html)[0])
         items = value.split(',')
         for item in items:
             _source_itag, source_url = item.split('|')
             quality = self.itag_map.get(_source_itag, 'Unknown Quality [%s]' % _source_itag)
-            source_url = urllib_parse.unquote(source_url)
+            source_url = unquote(source_url)
             urls.append((quality, source_url))
         return urls
 
