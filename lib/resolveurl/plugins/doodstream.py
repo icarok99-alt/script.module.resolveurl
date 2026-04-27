@@ -41,14 +41,11 @@ class DoodStreamResolver(ResolveUrl):
     pattern = r'(?://|\.)((?:playmogo|do*0*o*0*ds?(?:tream|ter|cdn)?|ds[2v](?:play|video)|(?:my)?v*id(?:pla?y|e0)|all3do|d-s|do(?:7go|ply))' \
               r'\.(?:[cit]om?|watch|s[ho]|cx|l[ai]|w[sf]|pm|re|yt|stream|pro|work|net))/(?:d|e)/([0-9a-zA-Z]+)'
 
-    def __init__(self):
-        super().__init__()
-        self.scraper = cloudscraper.create_scraper(
+    def get_media_url(self, host, media_id, subs=False):
+        scraper = cloudscraper.create_scraper(
             browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False},
             delay=4
         )
-
-    def get_media_url(self, host, media_id, subs=False):
         if 'playmogo' in host.lower():
             host = 'myvidplay.com'
         elif host not in ['doodstream.com', 'myvidplay.com']:
@@ -61,7 +58,7 @@ class DoodStreamResolver(ResolveUrl):
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
         }
 
-        r = self.scraper.get(web_url, headers=headers, timeout=10)
+        r = scraper.get(web_url, headers=headers, timeout=10)
         if r.url != web_url:
             host = re.findall(r'(?://|\.)([^/]+)', r.url)[0]
             web_url = self.get_url(host, media_id)
@@ -71,10 +68,10 @@ class DoodStreamResolver(ResolveUrl):
         match = re.search(r'<iframe\s*src="([^"]+)', html)
         if match:
             url = urllib_parse.urljoin(web_url, match.group(1))
-            html = self.scraper.get(url, headers=headers, timeout=10).text
+            html = scraper.get(url, headers=headers, timeout=10).text
         else:
             url = web_url.replace('/d/', '/e/')
-            html = self.scraper.get(url, headers=headers, timeout=10).text
+            html = scraper.get(url, headers=headers, timeout=10).text
 
         if subs:
             subtitles = {}
@@ -88,7 +85,7 @@ class DoodStreamResolver(ResolveUrl):
         if match:
             token = match.group(2).strip()
             url = urllib_parse.urljoin(web_url, match.group(1))
-            html = self.scraper.get(url, headers=headers, timeout=10).text
+            html = scraper.get(url, headers=headers, timeout=10).text
             if 'cloudflarestorage.' in html.lower():
                 vid_src = html.strip() + helpers.append_headers(headers)
             else:
