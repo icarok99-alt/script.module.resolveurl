@@ -20,6 +20,7 @@ import re
 import random
 import string
 import time
+from urllib.parse import urlparse
 from six.moves import urllib_parse
 from resolveurl.lib import helpers
 from resolveurl import common
@@ -46,6 +47,22 @@ class DoodStreamResolver(ResolveUrl):
             browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False},
             delay=4
         )
+
+        def dood_token_provider(resp, headers):
+            parsed = urlparse(resp.url)
+            base_url = f"{parsed.scheme}://{parsed.netloc}"
+            match = re.search(r'["\'](/(?:dood|pass)\?op=validate[^"\']*)["\']', resp.text)
+            validate_path = match.group(1) if match else '/dood?op=validate'
+            r = scraper.perform_request(
+                'POST',
+                base_url + validate_path,
+                headers={**headers, 'Referer': resp.url},
+            )
+            match = re.search(r'"gc_response"\s*:\s*"([^"]{20,})"', r.text)
+            return match.group(1) if match else None
+
+        scraper.turnstile.token_provider = dood_token_provider
+
         if 'playmogo' in host.lower():
             host = 'myvidplay.com'
         elif host not in ['doodstream.com', 'myvidplay.com']:
@@ -59,6 +76,7 @@ class DoodStreamResolver(ResolveUrl):
         }
 
         r = scraper.get(web_url, headers=headers, timeout=10)
+
         if r.url != web_url:
             host = re.findall(r'(?://|\.)([^/]+)', r.url)[0]
             web_url = self.get_url(host, media_id)
