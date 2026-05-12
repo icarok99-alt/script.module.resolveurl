@@ -20,7 +20,6 @@ import re
 import random
 import string
 import time
-from urllib.parse import urlparse
 from six.moves import urllib_parse
 from resolveurl.lib import helpers
 from resolveurl import common
@@ -32,64 +31,41 @@ import cloudscraper
 class DoodStreamResolver(ResolveUrl):
     name = 'DoodStream'
     domains = [
-        'playmogo.com', 'dood.watch', 'doodstream.com', 'dood.to', 'dood.so', 'dood.cx', 'dood.la',
-        'dood.ws', 'dood.sh', 'doodstream.co', 'dood.pm', 'dood.wf', 'dood.re', 'dood.yt',
-        'dooood.com', 'dood.stream', 'ds2play.com', 'doods.pro', 'ds2video.com', 'd0o0d.com',
-        'do0od.com', 'd0000d.com', 'd000d.com', 'dood.li', 'dood.work', 'dooodster.com',
-        'vidply.com', 'all3do.com', 'do7go.com', 'doodcdn.io', 'doply.net', 'vide0.net',
-        'vvide0.com', 'd-s.io', 'dsvplay.com', 'myvidplay.com'
+        'dood.watch', 'doodstream.com', 'dood.to', 'dood.so', 'dood.cx', 'dood.la', 'dood.ws',
+        'dood.sh', 'doodstream.co', 'dood.pm', 'dood.wf', 'dood.re', 'dood.yt', 'dooood.com',
+        'dood.stream', 'ds2play.com', 'doods.pro', 'ds2video.com', 'd0o0d.com', 'do0od.com',
+        'd0000d.com', 'd000d.com', 'dood.li', 'dood.work', 'dooodster.com', 'vidply.com',
+        'all3do.com', 'do7go.com', 'doodcdn.io', 'doply.net', 'vide0.net', 'vvide0.com',
+        'd-s.io', 'dsvplay.com', 'myvidplay.com', 'playmogo.com'
     ]
-    pattern = r'(?://|\.)((?:playmogo|do*0*o*0*ds?(?:tream|ter|cdn)?|ds[2v](?:play|video)|(?:my)?v*id(?:pla?y|e0)|all3do|d-s|do(?:7go|ply))' \
-              r'\.(?:[cit]om?|watch|s[ho]|cx|l[ai]|w[sf]|pm|re|yt|stream|pro|work|net))/(?:d|e)/([0-9a-zA-Z]+)'
+    pattern = (
+        r'(?://|\.)((?:do*0*o*0*ds?(?:tream|ter|cdn)?|ds[2v](?:play|video)|(?:my)?v*id(?:pla?y|e0)|all3do|'
+        r'd-s|do(?:7go|ply)|playmogo)\.'
+        r'(?:[cit]om?|watch|s[ho]|cx|l[ai]|w[sf]|pm|re|yt|stream|pro|work|net))/(?:d|e)/([0-9a-zA-Z]+)'
+    )
 
-    def get_media_url(self, host, media_id, subs=False):
-        scraper = cloudscraper.create_scraper(
+    def __init__(self):
+        super(DoodStreamResolver, self).__init__()
+        self.scraper = cloudscraper.create_scraper(
             browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False},
             delay=4
         )
 
-        def dood_token_provider(resp, headers):
-            parsed = urlparse(resp.url)
-            base_url = f"{parsed.scheme}://{parsed.netloc}"
-            match = re.search(r'["\'](/(?:dood|pass)\?op=validate[^"\']*)["\']', resp.text)
-            validate_path = match.group(1) if match else '/dood?op=validate'
-            r = scraper.perform_request(
-                'POST',
-                base_url + validate_path,
-                headers={**headers, 'Referer': resp.url},
-            )
-            match = re.search(r'"gc_response"\s*:\s*"([^"]{20,})"', r.text)
-            return match.group(1) if match else None
-
-        scraper.turnstile.token_provider = dood_token_provider
-
-        if 'playmogo' in host.lower():
-            host = 'myvidplay.com'
-        elif host not in ['doodstream.com', 'myvidplay.com']:
-            host = 'myvidplay.com'
-
+    def get_media_url(self, host, media_id, subs=False):
+        if host not in ['doodstream.com', 'myvidplay.com', 'playmogo.com']:
+            host = 'playmogo.com'
         web_url = self.get_url(host, media_id)
+
         headers = {
             'User-Agent': common.FF_USER_AGENT,
-            'Referer': 'https://{0}/'.format(host),
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+            'Referer': web_url
         }
 
-        r = scraper.get(web_url, headers=headers, timeout=10)
-
+        r = self.scraper.get(web_url, headers=headers, timeout=20)
         if r.url != web_url:
-            host = re.findall(r'(?://|\.)([^/]+)', r.url)[0]
-            web_url = self.get_url(host, media_id)
-        headers.update({'Referer': web_url})
+            web_url = r.url
+            headers['Referer'] = web_url
         html = r.text
-
-        match = re.search(r'<iframe\s*src="([^"]+)', html)
-        if match:
-            url = urllib_parse.urljoin(web_url, match.group(1))
-            html = scraper.get(url, headers=headers, timeout=10).text
-        else:
-            url = web_url.replace('/d/', '/e/')
-            html = scraper.get(url, headers=headers, timeout=10).text
 
         if subs:
             subtitles = {}
@@ -103,20 +79,23 @@ class DoodStreamResolver(ResolveUrl):
         if match:
             token = match.group(2).strip()
             url = urllib_parse.urljoin(web_url, match.group(1))
-            html = scraper.get(url, headers=headers, timeout=10).text
-            if 'cloudflarestorage.' in html.lower():
-                vid_src = html.strip() + helpers.append_headers(headers)
-            else:
-                vid_src = self.dood_decode(html) + token + str(int(time.time() * 1000)) + helpers.append_headers(headers)
 
-            if subs:
-                return vid_src, subtitles
-            return vid_src
+            resp = self.scraper.get(url, headers=headers, timeout=20)
+            str_url = resp.text.strip()
+
+            if str_url:
+                if 'cloudflarestorage.' in str_url:
+                    vid_src = str_url + helpers.append_headers(headers)
+                else:
+                    vid_src = self.dood_decode(str_url) + token + str(int(time.time() * 1000)) + helpers.append_headers(headers)
+                if subs:
+                    return vid_src, subtitles
+                return vid_src
 
         raise ResolverError('Video Link Not Found')
 
     def get_url(self, host, media_id):
-        return self._default_get_url(host, media_id, template='https://{host}/d/{media_id}')
+        return self._default_get_url(host, media_id, template='https://{host}/e/{media_id}')
 
     def dood_decode(self, data):
         t = string.ascii_letters + string.digits
