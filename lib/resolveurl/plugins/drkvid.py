@@ -1,6 +1,6 @@
 """
     Plugin for ResolveURL
-    Copyright (C) 2022 shellc0de
+    Copyright (C) 2023 peter
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -16,21 +16,22 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
+
 from resolveurl.plugins.__resolve_generic__ import ResolveGeneric
 from resolveurl.lib import helpers
 
 
-class KwikResolver(ResolveGeneric):
-    name = 'Kwik'
-    domains = ['kwik.cx']
-    pattern = r'(?://|\.)(kwik\.cx)/(?:e/|d/|v/)?([0-9a-zA-Z]+)'
+class DrkVidResolver(ResolveGeneric):
+    name = 'DrkVid'
+    domains = ['drkvid.site', 'allviid.online', 'telvod.site', 'allviid.info', 'allviidss.buzz']
+    pattern = r'(?://|\.)((?:drkvid|allviids*|telvod)\.(?:site|online|info|buzz))/(?:embed-)?([0-9a-zA-Z]+)'
 
     def get_media_url(self, host, media_id):
         return helpers.get_media_url(
             self.get_url(host, media_id),
-            patterns=[r'''const\s*source\s*=\s*'(?P<url>[^']+)'''],
+            patterns=[r'''sources:\s*\[(?:{\s*file:)?\s*"(?P<url>[^"]+)'''],
             generic_patterns=False
         )
 
     def get_url(self, host, media_id):
-        return self._default_get_url(host, media_id, template='https://{host}/e/{media_id}')
+        return self._default_get_url(host, media_id, template='https://{host}/embed-{media_id}.html')

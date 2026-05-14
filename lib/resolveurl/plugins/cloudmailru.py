@@ -1,6 +1,6 @@
 """
     Plugin for ResolveURL
-    Copyright (C) 2025 gujal
+    Copyright (C) 2020 gujal
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -17,29 +17,29 @@
 """
 
 import re
-from resolveurl.lib import helpers
-from resolveurl.resolver import ResolveUrl, ResolverError
 from resolveurl import common
-from six.moves import urllib_parse
+from resolveurl.resolver import ResolveUrl, ResolverError
+from resolveurl.lib import helpers
 
 
-class TokyVideoResolver(ResolveUrl):
-    name = 'TokyVideo'
-    domains = ['www.tokyvideo.com']
-    pattern = r'(?://|\.)(www\.tokyvideo\.com)/video/([0-9a-z-]+)'
+class CloudMailRuResolver(ResolveUrl):
+    name = 'CloudMailRu'
+    domains = ['cloud.mail.ru']
+    pattern = r'(?://|\.)(cloud\.mail\.ru)/public/([0-9A-Za-z]+/[^/]+)'
 
     def get_media_url(self, host, media_id):
         web_url = self.get_url(host, media_id)
-        referer = urllib_parse.urljoin(web_url, '/')
         headers = {'User-Agent': common.FF_USER_AGENT,
-                   'Referer': referer}
-        resp = self.net.http_GET(web_url, headers=headers)
-        cookie_string = resp.get_cookies()
-        r = re.search(r'<source\s*src="([^"]+)', resp.content)
+                   'Referer': 'https://mail.ru/'}
+        html = self.net.http_GET(web_url, headers=headers).content
+        r = re.search(r'"weblink_get".+?url":\s*"([^"]+)', html, re.DOTALL)
         if r:
-            headers.update({'Cookie': cookie_string})
-            return r.group(1) + helpers.append_headers(headers)
+            strurl = '{0}/{1}'.format(r.group(1), media_id)
+            tok = re.search(r'"tokens"[^}]+"download"\s*:\s*"([^"]+)', html, re.DOTALL)
+            if tok:
+                strurl += '?key={0}'.format(tok.group(1))
+            return strurl + helpers.append_headers(headers)
         raise ResolverError('No playable video found.')
 
     def get_url(self, host, media_id):
-        return self._default_get_url(host, media_id, template='https://{host}/video/{media_id}')
+        return self._default_get_url(host, media_id, template='https://{host}/public/{media_id}')
