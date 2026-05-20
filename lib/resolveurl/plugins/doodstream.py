@@ -44,14 +44,11 @@ class DoodStreamResolver(ResolveUrl):
         r'(?:[cit]om?|watch|s[ho]|cx|l[ai]|w[sf]|pm|re|yt|stream|pro|work|net))/(?:d|e)/([0-9a-zA-Z]+)'
     )
 
-    def __init__(self):
-        super(DoodStreamResolver, self).__init__()
-        self.scraper = cloudscraper.create_scraper(
+    def get_media_url(self, host, media_id, subs=False):
+        scraper = cloudscraper.create_scraper(
             browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False},
             delay=4
         )
-
-    def get_media_url(self, host, media_id, subs=False):
         if host not in ['doodstream.com', 'myvidplay.com', 'playmogo.com']:
             host = 'playmogo.com'
         web_url = self.get_url(host, media_id)
@@ -61,7 +58,7 @@ class DoodStreamResolver(ResolveUrl):
             'Referer': web_url
         }
 
-        r = self.scraper.get(web_url, headers=headers, timeout=20)
+        r = scraper.get(web_url, headers=headers, timeout=20)
         if r.url != web_url:
             web_url = r.url
             headers['Referer'] = web_url
@@ -80,7 +77,7 @@ class DoodStreamResolver(ResolveUrl):
             token = match.group(2).strip()
             url = urllib_parse.urljoin(web_url, match.group(1))
 
-            resp = self.scraper.get(url, headers=headers, timeout=20)
+            resp = scraper.get(url, headers=headers, timeout=20)
             str_url = resp.text.strip()
 
             if str_url:
