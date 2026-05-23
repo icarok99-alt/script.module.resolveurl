@@ -29,20 +29,27 @@ from resolveurl.resolver import ResolveUrl, ResolverError
 class ByseResolver(ResolveUrl):
     name = 'Byse'
     domains = [
-        'f16px.com', 'bysesayeveum.com', 'bysetayico.com', 'bysevepoin.com', 'bysezejataos.com',
-        'bysekoze.com', 'bysesukior.com', 'bysejikuar.com', 'bysefujedu.com', 'bysedikamoum.com',
-        'bysebuho.com', "byse.sx", 'filemoon.sx', 'filemoon.to', 'filemoon.in', 'filemoon.link',
-        'filemoon.wf', 'cinegrab.com', 'filemoon.eu', 'filemoon.art', 'moonmov.pro', '96ar.com',
-        'kerapoxy.cc', 'furher.in', '1azayf9w.xyz', '81u6xl9d.xyz', 'smdfs40r.skin', 'c1z39.com',
-        'bf0skv.org', 'z1ekv717.fun', 'l1afav.net', '222i8x.lol', '8mhlloqo.fun', 'f51rm.com',
-        'xcoic.com', 'filemoon.nl', 'boosteradx.online', 'streamlyplayer.online', 'bysewihe.com',
-        'byselapuix.com'
+        'f16px.com', 'bysesayeveum.com', 'bysetayico.com',
+        'bysevepoin.com', 'bysezejataos.com', 'bysekoze.com',
+        'bysesukior.com', 'bysejikuar.com', 'bysefujedu.com',
+        'bysedikamoum.com', 'bysebuho.com', 'byse.sx',
+        'filemoon.sx', 'filemoon.to', 'filemoon.in', 'filemoon.link',
+        'filemoon.wf', 'cinegrab.com', 'filemoon.eu', 'filemoon.art',
+        'moonmov.pro', '96ar.com', 'kerapoxy.cc', 'furher.in',
+        '1azayf9w.xyz', '81u6xl9d.xyz', 'smdfs40r.skin', 'c1z39.com',
+        'bf0skv.org', 'z1ekv717.fun', 'l1afav.net', '222i8x.lol',
+        '8mhlloqo.fun', 'f51rm.com', 'xcoic.com', 'filemoon.nl',
+        'boosteradx.online', 'streamlyplayer.online',
+        'bysewihe.com', 'byselapuix.com'
     ]
     pattern = (
-        r'(?://|\.)((?:filemoon|cinegrab|moonmov|kerapoxy|furher|1azayf9w|81u6xl9d|f16px|'
-        r'smdfs40r|bf0skv|z1ekv717|l1afav|222i8x|8mhlloqo|96ar|xcoic|f51rm|c1z39|boosteradx|'
-        r'byse(?:sayeveum|tayico|vepoin|zejataos|koze|sukior|jikuar|fujedu|dikamoum|buho|wihe|lapuix)?)'
-        r'\.(?:sx|to|s?k?in|link|nl|wf|com|eu|art|pro|cc|xyz|org|fun|net|lol|online))'
+        r'(?://|\.)((?:filemoon|cinegrab|moonmov|kerapoxy|furher'
+        r'|1azayf9w|81u6xl9d|f16px|smdfs40r|bf0skv|z1ekv717|l1afav'
+        r'|222i8x|8mhlloqo|96ar|xcoic|f51rm|c1z39|boosteradx'
+        r'|byse(?:sayeveum|tayico|vepoin|zejataos|koze|sukior'
+        r'|jikuar|fujedu|dikamoum|buho|wihe|lapuix)?)'
+        r'\.(?:sx|to|s?k?in|link|nl|wf|com|eu|art|pro|cc'
+        r'|xyz|org|fun|net|lol|online))'
         r'/(?:(?:e|d|download)/)?([0-9a-zA-Z]+)'
     )
 
@@ -63,25 +70,33 @@ class ByseResolver(ResolveUrl):
 
         # Challenge
         challenge_url = f"{base_url}/api/videos/access/challenge"
-        try:
-            challenge_resp = self.net.http_POST(challenge_url, headers=headers, jdata=True)
-            challenge_data = json.loads(challenge_resp.content)
-        except:
-            challenge_data = {}
+        challenge_resp = self.net.http_POST(
+            challenge_url, form_data={}, headers=headers, jdata=True
+        )
+        challenge_data = json.loads(challenge_resp.content)
+        if not challenge_data.get('challenge_id'):
+            raise ResolverError('Failed to obtain challenge')
 
         # Attest
         attest_url = f"{base_url}/api/videos/access/attest"
         attest_payload = self.generate_attest_payload(challenge_data)
         try:
-            self.net.http_POST(attest_url, headers=headers, form_data=attest_payload, jdata=True)
-        except:
+            self.net.http_POST(
+                attest_url,
+                form_data=attest_payload,
+                headers=headers,
+                jdata=True
+            )
+        except Exception:
             pass
 
         # Playback
         playback_url = f"{base_url}/api/videos/{media_id}/embed/playback"
         fingerprint = self.fp(16, 0.6, 0.9)
 
-        response = self.net.http_POST(playback_url, headers=headers, form_data=fingerprint, jdata=True)
+        response = self.net.http_POST(
+            playback_url, form_data=fingerprint, headers=headers, jdata=True
+        )
         data = json.loads(response.content)
 
         sources = data.get('sources')
@@ -105,8 +120,12 @@ class ByseResolver(ResolveUrl):
 
             sources = ct.get('sources')
             if sources:
-                sources = [(x.get('label'), x.get('url')) for x in sources]
-                uri = helpers.pick_source(helpers.sort_sources_list(sources))
+                sources = [
+                    (x.get('label'), x.get('url')) for x in sources
+                ]
+                uri = helpers.pick_source(
+                    helpers.sort_sources_list(sources)
+                )
                 return uri + helpers.append_headers(headers)
 
         raise ResolverError('Video Link Not Found')
@@ -118,9 +137,12 @@ class ByseResolver(ResolveUrl):
         return {
             "viewer_id": viewer_id,
             "device_id": device_id,
-            "challenge_id": challenge_data.get("challenge_id", "Yx_gmxXhzbvQfieF-th18nTy"),
-            "nonce": challenge_data.get("nonce", self._random_base64(32)),
-            "signature": "Ncbrq_Q1SZEJg7HQnl_JIw07VPzhnjMUtSoDAObjxKjGVZZpNNN86aTBH4fKwPhGsmRKx0t8P6RgZDv5vxU9LA",
+            "challenge_id": challenge_data["challenge_id"],
+            "nonce": challenge_data["nonce"],
+            "signature": (
+                "Ncbrq_Q1SZEJg7HQnl_JIw07VPzhnjMUtSoDAObjxKjGVZZpNNN8"
+                "6aTBH4fKwPhGsmRKx0t8P6RgZDv5vxU9LA"
+            ),
             "public_key": {
                 "crv": "P-256",
                 "ext": True,
@@ -144,7 +166,9 @@ class ByseResolver(ResolveUrl):
                 "device_memory": 8,
                 "touch_points": 5,
                 "webgl_vendor": "Google Inc. (Qualcomm)",
-                "webgl_renderer": "ANGLE (Qualcomm, Adreno (TM) 650, OpenGL ES 3.2)",
+                "webgl_renderer": (
+                    "ANGLE (Qualcomm, Adreno (TM) 650, OpenGL ES 3.2)"
+                ),
                 "canvas_hash": "F-1yXhwdZJpJlwYoDcJslo6_GR6-u4TkTGOx25lcxDo",
                 "audio_hash": "_VRYiH6_cygtD14eUnkys7AF3r7zCf769syVkS3GVGU",
                 "pointer_type": "coarse,hover,touch"
@@ -160,11 +184,13 @@ class ByseResolver(ResolveUrl):
 
     @staticmethod
     def _random_hex(length):
-        return os.urandom(length//2).hex()
+        return os.urandom(length // 2).hex()
 
     @staticmethod
     def _random_base64(length):
-        return base64.urlsafe_b64encode(os.urandom(length)).decode().rstrip('=')
+        return base64.urlsafe_b64encode(
+            os.urandom(length)
+        ).decode().rstrip('=')
 
     @staticmethod
     def ft(e):
@@ -199,7 +225,9 @@ class ByseResolver(ResolveUrl):
         }
 
         t_bdata = helpers.b64urlencode(json.dumps(t_data), strip=True)
-        t_sig = helpers.b64urlencode(sha256(t_bdata.encode()).digest(), strip=True)
+        t_sig = helpers.b64urlencode(
+            sha256(t_bdata.encode()).digest(), strip=True
+        )
         token = f"{t_bdata}.{t_sig}"
 
         t_data.update({'token': token})
