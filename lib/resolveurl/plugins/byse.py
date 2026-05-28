@@ -40,16 +40,16 @@ class ByseResolver(ResolveUrl):
         'bf0skv.org', 'z1ekv717.fun', 'l1afav.net', '222i8x.lol',
         '8mhlloqo.fun', 'f51rm.com', 'xcoic.com', 'filemoon.nl',
         'boosteradx.online', 'streamlyplayer.online',
-        'bysewihe.com', 'byselapuix.com'
+        'bysewihe.com', 'byselapuix.com', 'embedplaybyse.top'
     ]
     pattern = (
         r'(?://|\.)((?:filemoon|cinegrab|moonmov|kerapoxy|furher'
         r'|1azayf9w|81u6xl9d|f16px|smdfs40r|bf0skv|z1ekv717|l1afav'
         r'|222i8x|8mhlloqo|96ar|xcoic|f51rm|c1z39|boosteradx'
-        r'|byse(?:sayeveum|tayico|vepoin|zejataos|koze|sukior'
+        r'|embedplaybyse|byse(?:sayeveum|tayico|vepoin|zejataos|koze|sukior'
         r'|jikuar|fujedu|dikamoum|buho|wihe|lapuix)?)'
         r'\.(?:sx|to|s?k?in|link|nl|wf|com|eu|art|pro|cc'
-        r'|xyz|org|fun|net|lol|online))'
+        r'|xyz|org|fun|net|lol|online|top))'
         r'/(?:(?:e|d|download)/)?([0-9a-zA-Z]+)'
     )
 
@@ -202,7 +202,13 @@ class ByseResolver(ResolveUrl):
     def xn(self, e):
         if not e:
             return b''
-        return b''.join(map(self.ft, e))
+        import hashlib
+        parts16 = [self.ft(p) for p in e if len(self.ft(p)) == 16]
+        if len(parts16) >= 2:
+            return parts16[0] + parts16[1]
+        if len(parts16) == 1:
+            return parts16[0]
+        return hashlib.sha256(b''.join(self.ft(p) for p in e)).digest()
 
     @staticmethod
     def fp(x, y, z):
@@ -234,3 +240,4 @@ class ByseResolver(ResolveUrl):
         t_data.pop('iat')
         t_data.pop('exp')
         return {'fingerprint': t_data}
+        
