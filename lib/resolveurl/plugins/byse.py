@@ -68,36 +68,36 @@ class ByseResolver(ResolveUrl):
             'sec-ch-ua-platform': '"Android"'
         }
 
-        # Challenge
-        challenge_url = f"{base_url}/api/videos/access/challenge"
-        challenge_resp = self.net.http_POST(
-            challenge_url, form_data={}, headers=headers, jdata=True
-        )
-        challenge_data = json.loads(challenge_resp.content)
-        if not challenge_data.get('challenge_id'):
-            raise ResolverError('Failed to obtain challenge')
-
-        # Attest
-        attest_url = f"{base_url}/api/videos/access/attest"
-        attest_payload = self.generate_attest_payload(challenge_data)
         try:
-            self.net.http_POST(
-                attest_url,
-                form_data=attest_payload,
-                headers=headers,
-                jdata=True
+            challenge_url = f"{base_url}/api/videos/access/challenge"
+            challenge_resp = self.net.http_POST(
+                challenge_url, form_data={}, headers=headers, jdata=True
             )
+            challenge_data = json.loads(challenge_resp.content)
+            if not challenge_data.get('challenge_id'):
+                return self._get_media_url_legacy(host, media_id)
+
+            attest_url = f"{base_url}/api/videos/access/attest"
+            attest_payload = self.generate_attest_payload(challenge_data)
+            try:
+                self.net.http_POST(
+                    attest_url,
+                    form_data=attest_payload,
+                    headers=headers,
+                    jdata=True
+                )
+            except Exception:
+                pass
+
+            playback_url = f"{base_url}/api/videos/{media_id}/embed/playback"
+            fingerprint = self.fp(16, 0.6, 0.9)
+
+            response = self.net.http_POST(
+                playback_url, form_data=fingerprint, headers=headers, jdata=True
+            )
+            data = json.loads(response.content)
         except Exception:
-            pass
-
-        # Playback
-        playback_url = f"{base_url}/api/videos/{media_id}/embed/playback"
-        fingerprint = self.fp(16, 0.6, 0.9)
-
-        response = self.net.http_POST(
-            playback_url, form_data=fingerprint, headers=headers, jdata=True
-        )
-        data = json.loads(response.content)
+            return self._get_media_url_legacy(host, media_id)
 
         sources = data.get('sources')
         if sources:
@@ -128,6 +128,41 @@ class ByseResolver(ResolveUrl):
                 )
                 return uri + helpers.append_headers(headers)
 
+        return self._get_media_url_legacy(host, media_id)
+
+    def _get_media_url_legacy(self, host, media_id):
+        redirect_domains = ['boosteradx.online', 'byse.sx']
+        if host in redirect_domains:
+            host = 'streamlyplayer.online'
+        web_url = self._default_get_url(host, media_id, 'https://{host}/api/videos/{media_id}/playback')
+        ref = urllib_parse.urljoin(web_url, '/')
+        headers = {
+            'User-Agent': common.FF_USER_AGENT,
+            'Referer': ref,
+            'Origin': ref[:-1]
+        }
+        html = json.loads(self.net.http_POST(web_url, headers=headers, form_data=self.fp(16, 0.6, 0.9), jdata=True).content)
+        sources = html.get('sources')
+        if sources:
+            sources = [(x.get('label'), x.get('url')) for x in sources]
+            uri = helpers.pick_source(helpers.sort_sources_list(sources))
+            if uri.startswith('/'):
+                uri = urllib_parse.urljoin(web_url, uri)
+            url = helpers.get_redirect_url(uri, headers=headers)
+            return url + helpers.append_headers(headers)
+        pd = html.get('playback')
+        if pd:
+            iv = self.ft(pd.get('iv'))
+            key = self.xn(pd.get('key_parts'))
+            pl = self.ft(pd.get('payload'))
+            cipher = python_aesgcm.new(key)
+            ct = cipher.open(iv, pl)
+            ct = json.loads(ct.decode('latin-1'))
+            sources = ct.get('sources')
+            if sources:
+                sources = [(x.get('label'), x.get('url')) for x in sources]
+                uri = helpers.pick_source(helpers.sort_sources_list(sources))
+                return uri + helpers.append_headers(headers)
         raise ResolverError('Video Link Not Found')
 
     def generate_attest_payload(self, challenge_data):
@@ -240,4 +275,3 @@ class ByseResolver(ResolveUrl):
         t_data.pop('iat')
         t_data.pop('exp')
         return {'fingerprint': t_data}
-        
