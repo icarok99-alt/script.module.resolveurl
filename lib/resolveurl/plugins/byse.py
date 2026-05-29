@@ -238,12 +238,13 @@ class ByseResolver(ResolveUrl):
         if not e:
             return b''
         import hashlib
-        parts16 = [self.ft(p) for p in e if len(self.ft(p)) == 16]
+        parts = [self.ft(p) for p in e]
+        parts16 = [p for p in parts if len(p) == 16]
         if len(parts16) >= 2:
             return parts16[0] + parts16[1]
         if len(parts16) == 1:
             return parts16[0]
-        return hashlib.sha256(b''.join(self.ft(p) for p in e)).digest()
+        return hashlib.sha256(b''.join(parts)).digest()
 
     @staticmethod
     def fp(x, y, z):
