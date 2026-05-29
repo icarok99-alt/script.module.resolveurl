@@ -237,13 +237,18 @@ class ByseResolver(ResolveUrl):
     def xn(self, e):
         if not e:
             return b''
-        import hashlib
         parts = [self.ft(p) for p in e]
+        # Server alternates: sometimes sends 32-byte parts (one = AES-256),
+        # sometimes sends 16-byte parts (two combined = AES-256)
+        parts32 = [p for p in parts if len(p) == 32]
+        if parts32:
+            return parts32[0]
         parts16 = [p for p in parts if len(p) == 16]
         if len(parts16) >= 2:
             return parts16[0] + parts16[1]
         if len(parts16) == 1:
             return parts16[0]
+        import hashlib
         return hashlib.sha256(b''.join(parts)).digest()
 
     @staticmethod
