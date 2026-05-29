@@ -29,10 +29,11 @@ from resolveurl.resolver import ResolveUrl, ResolverError
 
 class AbyssResolver(ResolveUrl):
     name = 'Abyss'
-    domains = ['abysscdn.com', 'hydraxcdn.biz', 'short.icu']
+    domains = ['abysscdn.com', 'hydraxcdn.biz', 'short.icu', 'embedplayabyss.top']
     pattern = (
-        r'(?://|\.)((?:abysscdn|hydraxcdn|short)\.(?:com|biz|icu))'
-        r'(?:/\?v=|/)([0-9a-zA-Z_-]+)'
+        r'(?://|\.)((?:abysscdn|hydraxcdn|short)\.(?:com|biz|icu)'
+        r'|embedplayabyss\.top)'
+        r'(?:/\?v=|/player\.html\?v=|/)([0-9a-zA-Z_-]+)'
     )
 
     _CHARSET = 'RB0fpH8ZEyVLkv7c2i6MAJ5u3IKFDxlS1NTsnGaqmXYdUrtzjwObCgQP94hoeW+/='
@@ -80,7 +81,7 @@ class AbyssResolver(ResolveUrl):
         raise ResolverError('Video Link Not Found')
 
     def get_url(self, host, media_id):
-        if host == 'short.icu':
+        if host in ('short.icu', 'embedplayabyss.top'):
             host = 'abysscdn.com'
         return self._default_get_url(host, media_id, 'https://{host}/?v={media_id}')
 
