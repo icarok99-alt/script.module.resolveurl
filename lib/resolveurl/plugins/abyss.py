@@ -69,7 +69,8 @@ class AbyssResolver(ResolveUrl):
             else:
                 media_payload = self._decrypt_media(media_blob, user_id, slug, md5_id)
 
-            source = self._extract_from_media_payload(media_payload, slug, md5_id)
+            is_download = datas.get("isDownload", False)
+            source = self._extract_from_media_payload(media_payload, slug, md5_id, is_download)
         else:
             source = self._legacy_extract(html)
 
@@ -126,6 +127,10 @@ class AbyssResolver(ResolveUrl):
             m = re.search(r'"media"\s*:\s*"((?:\\.|[^"\\])*)"', decoded, re.DOTALL)
             if m:
                 payload['media'] = self._decode_escaped_binary(m.group(1))
+
+        config_m = re.search(r'"isDownload"\s*:\s*(true|false)', decoded)
+        if config_m:
+            payload["isDownload"] = config_m.group(1) == "true"
 
         return payload if payload else {}
 
@@ -198,7 +203,7 @@ class AbyssResolver(ResolveUrl):
         second = base64.b64encode(first.encode('utf-8')).decode('utf-8').replace('=', '')
         return second
 
-    def _extract_from_media_payload(self, media_payload, slug, md5_id):
+    def _extract_from_media_payload(self, media_payload, slug, md5_id, is_download=False):
         if not isinstance(media_payload, dict):
             return None
 
@@ -213,10 +218,11 @@ class AbyssResolver(ResolveUrl):
             direct = src.get('file')
             if isinstance(direct, str) and direct:
                 return direct.replace('\\/', '/')
-            url_ = src.get('url')
-            path_ = src.get('path')
-            if isinstance(url_, str) and isinstance(path_, str) and url_ and path_:
-                return '{0}/{1}'.format(url_.rstrip('/'), path_.lstrip('/')).replace('\\/', '/')
+            if not is_download:
+                url_ = src.get('url')
+                path_ = src.get('path')
+                if isinstance(url_, str) and isinstance(path_, str) and url_ and path_:
+                    return '{0}/{1}'.format(url_.rstrip('/'), path_.lstrip('/')).replace('\\/', '/')
 
         hls = media_payload.get('hls') if isinstance(media_payload.get('hls'), dict) else {}
         for key in ('file', 'url', 'master', 'src', 'source'):
@@ -236,6 +242,9 @@ class AbyssResolver(ResolveUrl):
             res_id = src.get('res_id')
             sub = src.get('sub')
             if not (size and res_id and sub and md5_id and slug):
+                continue
+            # Skip sources that have a direct url+path (download CDN links, not streamable via sora)
+            if src.get('url') and src.get('path'):
                 continue
             domain = next((d for d in domains if isinstance(d, str) and sub in d), None)
             if not domain:
