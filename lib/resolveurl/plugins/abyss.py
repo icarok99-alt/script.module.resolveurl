@@ -51,11 +51,21 @@ class AbyssResolver(ResolveUrl):
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         }
 
-        r = scraper.get(web_url, headers=headers, timeout=15)
+        r = scraper.get(web_url, headers=headers, timeout=15, allow_redirects=True)
 
         if r.url != web_url:
             web_url = r.url
             headers['Referer'] = urllib_parse.urljoin(web_url, '/')
+
+        location = r.headers.get('Location') or r.headers.get('location')
+        if location and location != web_url:
+            web_url = location if location.startswith('http') else urllib_parse.urljoin(web_url, location)
+            headers['Referer'] = urllib_parse.urljoin(web_url, '/')
+            r = scraper.get(web_url, headers=headers, timeout=15, allow_redirects=True)
+            if r.url != web_url:
+                web_url = r.url
+                headers['Referer'] = urllib_parse.urljoin(web_url, '/')
+
         html = r.text
 
         datas = self._extract_datas_payload(html)
@@ -243,9 +253,6 @@ class AbyssResolver(ResolveUrl):
             res_id = src.get('res_id')
             sub = src.get('sub')
             if not (size and res_id and sub and md5_id and slug):
-                continue
-            # Skip sources that have a direct url+path (download CDN links, not streamable via sora)
-            if src.get('url') and src.get('path'):
                 continue
             domain = next((d for d in domains if isinstance(d, str) and sub in d), None)
             if not domain:
