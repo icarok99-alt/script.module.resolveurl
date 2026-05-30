@@ -32,7 +32,7 @@ except Exception:
 class NetcineResolver(ResolveUrl):
     name = 'netcine'
     domains = ['*']
-    pattern = r'(?://|\.)([a-z0-9-]{3,25}\.[a-z]{2,})(/?.*)'
+    pattern = r'(?://|\.)(netcine[a-z0-9-]*\.[a-z]{2,10})(/?.*)'
 
     def __init__(self):
         self.net = common.Net()
