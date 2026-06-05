@@ -25,8 +25,6 @@ from resolveurl.lib import helpers
 from resolveurl import common
 from resolveurl.resolver import ResolveUrl, ResolverError
 
-import cloudscraper
-
 
 class DoodStreamResolver(ResolveUrl):
     name = 'DoodStream'
@@ -45,24 +43,26 @@ class DoodStreamResolver(ResolveUrl):
     )
 
     def get_media_url(self, host, media_id, subs=False):
-        scraper = cloudscraper.create_scraper(
-            browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False},
-            delay=4
-        )
         if host not in ['doodstream.com', 'myvidplay.com', 'playmogo.com']:
             host = 'playmogo.com'
         web_url = self.get_url(host, media_id)
+        headers = {'User-Agent': common.RAND_UA,
+                   'Referer': 'https://{0}/'.format(host)}
 
-        headers = {
-            'User-Agent': common.FF_USER_AGENT,
-            'Referer': web_url
-        }
+        r = self.net.http_GET(web_url, headers=headers)
+        if r.get_url() != web_url:
+            host = re.findall(r'(?://|\.)([^/]+)', r.get_url())[0]
+            web_url = self.get_url(host, media_id)
+        headers.update({'Referer': web_url})
+        html = r.content
 
-        r = scraper.get(web_url, headers=headers, timeout=20)
-        if r.url != web_url:
-            web_url = r.url
-            headers['Referer'] = web_url
-        html = r.text
+        match = re.search(r'<iframe\s*src="([^"]+)', html)
+        if match:
+            url = urllib_parse.urljoin(web_url, match.group(1))
+            html = self.net.http_GET(url, headers=headers).content
+        else:
+            url = web_url.replace('/d/', '/e/')
+            html = self.net.http_GET(url, headers=headers).content
 
         if subs:
             subtitles = {}
@@ -74,25 +74,21 @@ class DoodStreamResolver(ResolveUrl):
 
         match = re.search(r'''dsplayer\.hotkeys[^']+'([^']+).+?function\s*makePlay.+?return[^?]+([^"]+)''', html, re.DOTALL)
         if match:
-            token = match.group(2).strip()
+            token = match.group(2)
             url = urllib_parse.urljoin(web_url, match.group(1))
-
-            resp = scraper.get(url, headers=headers, timeout=20)
-            str_url = resp.text.strip()
-
-            if str_url:
-                if 'cloudflarestorage.' in str_url:
-                    vid_src = str_url + helpers.append_headers(headers)
-                else:
-                    vid_src = self.dood_decode(str_url) + token + str(int(time.time() * 1000)) + helpers.append_headers(headers)
-                if subs:
-                    return vid_src, subtitles
-                return vid_src
+            html = self.net.http_GET(url, headers=headers).content
+            if 'cloudflarestorage.' in html:
+                vid_src = html.strip() + helpers.append_headers(headers)
+            else:
+                vid_src = self.dood_decode(html) + token + str(int(time.time() * 1000)) + helpers.append_headers(headers)
+            if subs:
+                return vid_src, subtitles
+            return vid_src
 
         raise ResolverError('Video Link Not Found')
 
     def get_url(self, host, media_id):
-        return self._default_get_url(host, media_id, template='https://{host}/e/{media_id}')
+        return self._default_get_url(host, media_id, template='https://{host}/d/{media_id}')
 
     def dood_decode(self, data):
         t = string.ascii_letters + string.digits
