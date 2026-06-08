@@ -17,16 +17,28 @@
 """
 
 import json
+import os
 import time
 import hashlib
-import random
 import base64
+from random import choice
 from six.moves import urllib_parse
 from resolveurl.lib import helpers
 from resolveurl.lib.aesgcm import python_aesgcm
 from resolveurl.lib.ecdsa import SigningKey, NIST256p
 from resolveurl import common
 from resolveurl.resolver import ResolveUrl, ResolverError
+
+_PROFILES_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'lib', 'byse_profiles.json')
+try:
+    with open(_PROFILES_PATH, 'r') as _f:
+        _PROFILES = json.load(_f)
+except Exception:
+    _PROFILES = []
+
+
+def _get_profile():
+    return choice(_PROFILES)
 
 
 class ByseResolver(ResolveUrl):
@@ -53,109 +65,91 @@ class ByseResolver(ResolveUrl):
         embed_url = self.get_url(host, media_id)
         print('Byse: embed_url = {}'.format(embed_url))
 
+        profile = _get_profile()
+        client = profile.get('client', {})
+        print('Byse: profile selecionado -> {} | {} {} | {}x{}'.format(
+            client.get('platform', 'Unknown'),
+            client.get('model', 'Desktop'),
+            client.get('ua_full_version', ''),
+            client.get('screen_width', ''),
+            client.get('screen_height', '')
+        ))
+        ua = profile['ua']
+        api_base = self._get_base(embed_url)
         headers = {
-            'User-Agent': common.RAND_UA,
+            'User-Agent': ua,
             'Accept': 'application/json, text/plain, */*'
         }
-
-        details_url = '{}/api/videos/{}/embed/details'.format(self._get_base(embed_url), media_id)
-        details_headers = headers.copy()
-        details_headers.update({
-            'Referer': embed_url,
-            'Origin': self._get_base(embed_url)
-        })
-        try:
-            resp = self.net.http_GET(details_url, headers=details_headers, timeout=5)
-            details = json.loads(resp.content)
-        except Exception as e:
-            raise ResolverError('Erro ao obter details: {}'.format(e))
-
-        frame_url = details.get('embed_frame_url')
-        if not frame_url:
-            raise ResolverError('embed_frame_url nao encontrado')
-        api_base = self._get_base(frame_url)
-        referer = frame_url
 
         api_headers = headers.copy()
         api_headers.update({
             'Origin': api_base,
-            'Referer': referer,
+            'Referer': embed_url,
             'X-Embed-Origin': urllib_parse.urlparse(embed_url).netloc,
             'X-Embed-Referer': embed_url,
             'X-Embed-Parent': embed_url,
         })
 
-        settings_url = '{}/api/videos/{}/embed/settings'.format(api_base, media_id)
-        try:
-            resp = self.net.http_GET(settings_url, headers=api_headers, timeout=5)
-            settings = json.loads(resp.content)
-        except Exception as e:
-            raise ResolverError('Erro ao obter settings: {}'.format(e))
-        captcha_required = settings.get('captcha_required', False)
-
         challenge_url = '{}/api/videos/access/challenge'.format(api_base)
         try:
-            resp = self.net.http_POST(challenge_url, form_data={}, headers=api_headers, jdata=True, timeout=5)
+            resp = self.net.http_POST(challenge_url, form_data={}, headers=api_headers, jdata=True, timeout=10)
             challenge = json.loads(resp.content)
         except Exception as e:
             raise ResolverError('Erro no challenge: {}'.format(e))
 
-        attest_data = self._make_attestation(challenge)
+        attest_data = self._make_attestation(challenge, profile['client'])
         attest_url = '{}/api/videos/access/attest'.format(api_base)
         try:
-            resp = self.net.http_POST(attest_url, form_data=attest_data, headers=api_headers, jdata=True, timeout=5)
+            resp = self.net.http_POST(attest_url, form_data=attest_data, headers=api_headers, jdata=True, timeout=10)
             attest = json.loads(resp.content)
         except Exception as e:
             raise ResolverError('Erro no attest: {}'.format(e))
 
+        viewer_id = attest.get('viewer_id', '')
+        device_id = attest.get('device_id', '')
         fingerprint = {
             'token': attest.get('token'),
-            'viewer_id': attest.get('viewer_id'),
-            'device_id': attest.get('device_id'),
+            'viewer_id': viewer_id,
+            'device_id': device_id,
             'confidence': attest.get('confidence')
         }
 
-        cookie = 'byse_viewer_id={}; byse_device_id={}'.format(fingerprint['viewer_id'], fingerprint['device_id'])
-        api_headers['Cookie'] = cookie
+        api_headers['Cookie'] = 'byse_viewer_id={}; byse_device_id={}'.format(viewer_id, device_id)
 
-        captcha_token = None
-        if captcha_required:
-            print('Byse: resolvendo PoW captcha...')
-            captcha_url = '{}/api/videos/{}/embed/captcha'.format(api_base, media_id)
-            try:
-                resp = self.net.http_POST(captcha_url, form_data={'fingerprint': fingerprint}, headers=api_headers, jdata=True, timeout=5)
-                pow_data = json.loads(resp.content)
-            except Exception as e:
-                raise ResolverError('Erro ao obter PoW: {}'.format(e))
+        print('Byse: resolvendo PoW captcha...')
+        captcha_url = '{}/api/videos/{}/embed/captcha'.format(api_base, media_id)
+        try:
+            resp = self.net.http_POST(captcha_url, form_data={'fingerprint': fingerprint}, headers=api_headers, jdata=True, timeout=10)
+            pow_data = json.loads(resp.content)
+        except Exception as e:
+            raise ResolverError('Erro ao obter PoW: {}'.format(e))
 
-            solution = self._solve_pow(pow_data.get('pow_nonce'), pow_data.get('pow_difficulty', 0), timeout_ms=5000)
-            if solution is None:
-                raise ResolverError('Timeout ao resolver PoW')
+        solution = self._solve_pow(pow_data.get('pow_nonce'), pow_data.get('pow_difficulty', 0), timeout_ms=30000)
+        if solution is None:
+            raise ResolverError('Timeout ao resolver PoW')
 
-            verify_url = '{}/api/videos/{}/embed/captcha/verify'.format(api_base, media_id)
-            verify_payload = {
-                'pow_token': pow_data.get('pow_token'),
-                'solution': solution,
-                'fingerprint': fingerprint
-            }
-            try:
-                resp = self.net.http_POST(verify_url, form_data=verify_payload, headers=api_headers, jdata=True, timeout=5)
-                verify = json.loads(resp.content)
-            except Exception as e:
-                raise ResolverError('Erro na verificacao do captcha: {}'.format(e))
+        verify_url = '{}/api/videos/{}/embed/captcha/verify'.format(api_base, media_id)
+        verify_payload = {
+            'pow_token': pow_data.get('pow_token'),
+            'solution': solution,
+            'fingerprint': fingerprint
+        }
+        try:
+            resp = self.net.http_POST(verify_url, form_data=verify_payload, headers=api_headers, jdata=True, timeout=10)
+            verify = json.loads(resp.content)
+        except Exception as e:
+            raise ResolverError('Erro na verificacao do captcha: {}'.format(e))
 
-            if verify.get('status') == 'ok':
-                captcha_token = verify.get('token')
-            else:
-                raise ResolverError('Falha na verificacao do PoW')
+        if verify.get('status') != 'ok':
+            raise ResolverError('Falha na verificacao do PoW')
+        captcha_token = verify.get('token')
 
         playback_headers = api_headers.copy()
-        if captcha_token:
-            playback_headers['X-Captcha-Token'] = captcha_token
+        playback_headers['X-Captcha-Token'] = captcha_token
 
         playback_url = '{}/api/videos/{}/embed/playback'.format(api_base, media_id)
         try:
-            resp = self.net.http_POST(playback_url, form_data={'fingerprint': fingerprint}, headers=playback_headers, jdata=True, timeout=5)
+            resp = self.net.http_POST(playback_url, form_data={'fingerprint': fingerprint}, headers=playback_headers, jdata=True, timeout=10)
             playback = json.loads(resp.content)
         except Exception as e:
             raise ResolverError('Erro no playback: {}'.format(e))
@@ -246,41 +240,58 @@ class ByseResolver(ResolveUrl):
 
     @classmethod
     def _hash(cls, data):
-        e = [1779033703, 3144134277, 1013904242, 2773480762]
+        M = 0xFFFFFFFF
+        e0, e1, e2, e3 = 1779033703, 3144134277, 1013904242, 2773480762
+
+        def ye():
+            nonlocal e0, e1, e2, e3
+            e0 = (e0 + e1) & M
+            v = e3 ^ e0; e3 = ((v << 16) | (v >> 16)) & M
+            e2 = (e2 + e3) & M
+            v = e1 ^ e2; e1 = ((v << 12) | (v >> 20)) & M
+            e0 = (e0 + e1) & M
+            v = e3 ^ e0; e3 = ((v << 8) | (v >> 24)) & M
+            e2 = (e2 + e3) & M
+            v = e1 ^ e2; e1 = ((v << 7) | (v >> 25)) & M
+
         for b in data:
-            e[0] = (e[0] + b) & 0xFFFFFFFF
-            e[0] = cls._re(e[0], 7)
-            cls._ye(e)
+            e0 = (e0 + b) & M
+            e0 = ((e0 << 7) | (e0 >> 25)) & M
+            ye()
         for _ in range(8):
-            cls._ye(e)
+            ye()
 
-        r = [0] * cls._BE
-        for i in range(cls._BE):
-            cls._ye(e)
-            r[i] = (e[0] ^ e[2]) & 0xFFFFFFFF
+        BE = 512
+        LT = BE - 1
+        r = [0] * BE
+        for i in range(BE):
+            ye()
+            r[i] = (e0 ^ e2) & M
 
-        for _ in range(cls._DR):
-            for s in range(cls._BE):
-                a = r[s] & cls._LT
-                c = (r[s] + r[a]) & 0xFFFFFFFF
-                c = cls._re(c, 13)
-                c = (c ^ cls._ht(r[(s + 1) & cls._LT], cls._LR)) & 0xFFFFFFFF
+        LR = 2654435761
+        HR = 2246822519
+        for _ in range(2):
+            for s in range(BE):
+                a = r[s] & LT
+                c = (r[s] + r[a]) & M
+                c = ((c << 13) | (c >> 19)) & M
+                c = (c ^ ((r[(s + 1) & LT] * LR) & M)) & M
                 r[s] = c
-                e[0] = (e[0] ^ c) & 0xFFFFFFFF
-                cls._ye(e)
+                e0 = (e0 ^ c) & M
+                ye()
 
         n = [0] * 8
-        o = cls._BE // 8
+        o = BE // 8
         for i in range(8):
-            cls._ye(e)
-            s = e[0]
+            ye()
+            s2 = e0
             a = i * o
             for c in range(o):
                 d = r[a + c]
-                s = (s + d) & 0xFFFFFFFF
-                s = cls._re(s, 5)
-                s = (s ^ cls._ht(d, cls._HR)) & 0xFFFFFFFF
-            n[i] = (s ^ e[2]) & 0xFFFFFFFF
+                s2 = (s2 + d) & M
+                s2 = ((s2 << 5) | (s2 >> 27)) & M
+                s2 = (s2 ^ ((d * HR) & M)) & M
+            n[i] = (s2 ^ e2) & M
         return n
 
     @classmethod
@@ -294,37 +305,25 @@ class ByseResolver(ResolveUrl):
         return bits
 
     @classmethod
-    def _solve_pow(cls, nonce, difficulty, timeout_ms=5000):
+    def _solve_pow(cls, nonce, difficulty, timeout_ms=30000):
         if difficulty <= 0:
             return "0"
-        prefix = nonce + ":"
+        prefix = (nonce + ":").encode('utf-8')
         start = time.time()
+        timeout_s = timeout_ms / 1000.0
+        _hash = cls._hash
+        _lzbits = cls._lzbits
         s = 0
         while True:
             for _ in range(4096):
-                data = (prefix + str(s)).encode('utf-8')
-                if cls._lzbits(cls._hash(data)) >= difficulty:
+                data = prefix + str(s).encode('utf-8')
+                if _lzbits(_hash(data)) >= difficulty:
                     return str(s)
                 s += 1
-            if (time.time() - start) * 1000 > timeout_ms:
+            if (time.time() - start) > timeout_s:
                 return None
 
-    def _make_attestation(self, challenge):
-        ua = common.RAND_UA
-        client_data = {
-            "user_agent": ua,
-            "pixel_ratio": 2,
-            "screen_width": 1536,
-            "screen_height": 960,
-            "color_depth": 24,
-            "languages": ["en-US", "en"],
-            "timezone": "Europe/Rome",
-            "hardware_concurrency": 8,
-            "touch_points": 0,
-            "pointer_type": "fine,hover",
-            "extra": {"vendor": "", "appVersion": "5.0 (Windows)"}
-        }
-
+    def _make_attestation(self, challenge, client_data):
         sk = SigningKey.generate(curve=NIST256p)
         vk = sk.get_verifying_key()
         nonce_bytes = str(challenge.get("nonce", "")).encode('utf-8')
@@ -350,5 +349,5 @@ class ByseResolver(ResolveUrl):
             },
             "client": client_data,
             "storage": {},
-            "attributes": {"entropy": "low"}
+            "attributes": {"entropy": "high"}
         }
