@@ -18,7 +18,6 @@
 
 import json
 import os
-import time
 import hashlib
 import base64
 from random import choice
@@ -92,7 +91,7 @@ class ByseResolver(ResolveUrl):
 
         challenge_url = '{}/api/videos/access/challenge'.format(api_base)
         try:
-            resp = self.net.http_POST(challenge_url, form_data={}, headers=api_headers, jdata=True, timeout=10)
+            resp = self.net.http_POST(challenge_url, form_data={}, headers=api_headers, jdata=True)
             challenge = json.loads(resp.content)
         except Exception as e:
             raise ResolverError('Erro no challenge: {}'.format(e))
@@ -100,7 +99,7 @@ class ByseResolver(ResolveUrl):
         attest_data = self._make_attestation(challenge, profile['client'])
         attest_url = '{}/api/videos/access/attest'.format(api_base)
         try:
-            resp = self.net.http_POST(attest_url, form_data=attest_data, headers=api_headers, jdata=True, timeout=10)
+            resp = self.net.http_POST(attest_url, form_data=attest_data, headers=api_headers, jdata=True)
             attest = json.loads(resp.content)
         except Exception as e:
             raise ResolverError('Erro no attest: {}'.format(e))
@@ -119,15 +118,12 @@ class ByseResolver(ResolveUrl):
         print('Byse: resolvendo PoW captcha...')
         captcha_url = '{}/api/videos/{}/embed/captcha'.format(api_base, media_id)
         try:
-            resp = self.net.http_POST(captcha_url, form_data={'fingerprint': fingerprint}, headers=api_headers, jdata=True, timeout=10)
+            resp = self.net.http_POST(captcha_url, form_data={'fingerprint': fingerprint}, headers=api_headers, jdata=True)
             pow_data = json.loads(resp.content)
         except Exception as e:
             raise ResolverError('Erro ao obter PoW: {}'.format(e))
 
-        solution = self._solve_pow(pow_data.get('pow_nonce'), pow_data.get('pow_difficulty', 0), timeout_ms=30000)
-        if solution is None:
-            raise ResolverError('Timeout ao resolver PoW')
-
+        solution = self._solve_pow(pow_data.get('pow_nonce'), pow_data.get('pow_difficulty', 0))
         verify_url = '{}/api/videos/{}/embed/captcha/verify'.format(api_base, media_id)
         verify_payload = {
             'pow_token': pow_data.get('pow_token'),
@@ -135,7 +131,7 @@ class ByseResolver(ResolveUrl):
             'fingerprint': fingerprint
         }
         try:
-            resp = self.net.http_POST(verify_url, form_data=verify_payload, headers=api_headers, jdata=True, timeout=10)
+            resp = self.net.http_POST(verify_url, form_data=verify_payload, headers=api_headers, jdata=True)
             verify = json.loads(resp.content)
         except Exception as e:
             raise ResolverError('Erro na verificacao do captcha: {}'.format(e))
@@ -149,7 +145,7 @@ class ByseResolver(ResolveUrl):
 
         playback_url = '{}/api/videos/{}/embed/playback'.format(api_base, media_id)
         try:
-            resp = self.net.http_POST(playback_url, form_data={'fingerprint': fingerprint}, headers=playback_headers, jdata=True, timeout=10)
+            resp = self.net.http_POST(playback_url, form_data={'fingerprint': fingerprint}, headers=playback_headers, jdata=True)
             playback = json.loads(resp.content)
         except Exception as e:
             raise ResolverError('Erro no playback: {}'.format(e))
@@ -305,23 +301,18 @@ class ByseResolver(ResolveUrl):
         return bits
 
     @classmethod
-    def _solve_pow(cls, nonce, difficulty, timeout_ms=30000):
+    def _solve_pow(cls, nonce, difficulty):
         if difficulty <= 0:
             return "0"
         prefix = (nonce + ":").encode('utf-8')
-        start = time.time()
-        timeout_s = timeout_ms / 1000.0
         _hash = cls._hash
         _lzbits = cls._lzbits
         s = 0
         while True:
-            for _ in range(4096):
-                data = prefix + str(s).encode('utf-8')
-                if _lzbits(_hash(data)) >= difficulty:
-                    return str(s)
-                s += 1
-            if (time.time() - start) > timeout_s:
-                return None
+            data = prefix + str(s).encode('utf-8')
+            if _lzbits(_hash(data)) >= difficulty:
+                return str(s)
+            s += 1
 
     def _make_attestation(self, challenge, client_data):
         sk = SigningKey.generate(curve=NIST256p)
