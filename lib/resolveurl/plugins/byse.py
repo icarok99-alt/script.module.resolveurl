@@ -17,11 +17,28 @@
 """
 
 import json
+import os
+import time
+import hashlib
+import base64
+from random import choice
 from six.moves import urllib_parse
 from resolveurl.lib import helpers
 from resolveurl.lib.aesgcm import python_aesgcm
+from resolveurl.lib.ecdsa import SigningKey, NIST256p
 from resolveurl import common
 from resolveurl.resolver import ResolveUrl, ResolverError
+
+_PROFILES_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'lib', 'byse_profiles.json')
+try:
+    with open(_PROFILES_PATH, 'r') as _f:
+        _PROFILES = json.load(_f)
+except Exception:
+    _PROFILES = []
+
+
+def _get_profile():
+    return choice(_PROFILES)
 
 
 class ByseResolver(ResolveUrl):
@@ -45,65 +62,106 @@ class ByseResolver(ResolveUrl):
     )
 
     def get_media_url(self, host, media_id):
-        web_url = self.get_url(host, media_id)
-        ref = urllib_parse.urljoin(web_url, '/')
+        embed_url = self.get_url(host, media_id)
+        print('Byse: embed_url = {}'.format(embed_url))
+
+        profile = _get_profile()
+        client = profile.get('client', {})
+        print('Byse: profile selecionado -> {} | {} {} | {}x{}'.format(
+            client.get('platform', 'Unknown'),
+            client.get('model', 'Desktop'),
+            client.get('ua_full_version', ''),
+            client.get('screen_width', ''),
+            client.get('screen_height', '')
+        ))
+        ua = profile['ua']
+        api_base = self._get_base(embed_url)
         headers = {
-            'User-Agent': common.RAND_UA,
-            'Referer': ref,
-            'Origin': ref[:-1]
+            'User-Agent': ua,
+            'Accept': 'application/json, text/plain, */*'
         }
-        details_url = '{0}api/videos/{1}/embed/details'.format(ref, media_id)
-        details = self.net.http_GET(details_url, headers=headers).json
-        embed_url = details.get('embed_frame_url')
-        ref2 = urllib_parse.urljoin(embed_url, '/')
-        headers.update({
-            'Referer': ref2,
-            'Origin': ref2[:-1],
-            'X-Embed-Parent': web_url
+
+        api_headers = headers.copy()
+        api_headers.update({
+            'Origin': api_base,
+            'Referer': embed_url,
+            'X-Embed-Origin': urllib_parse.urlparse(embed_url).netloc,
+            'X-Embed-Referer': embed_url,
+            'X-Embed-Parent': embed_url,
         })
 
-        settings_url = '{0}api/videos/{1}/embed/settings'.format(ref2, media_id)
-        settings = self.net.http_GET(settings_url, headers=headers).json
+        challenge_url = '{}/api/videos/access/challenge'.format(api_base)
+        try:
+            resp = self.net.http_POST(challenge_url, form_data={}, headers=api_headers, jdata=True, timeout=10)
+            challenge = json.loads(resp.content)
+        except Exception as e:
+            raise ResolverError('Erro no challenge: {}'.format(e))
 
-        if settings.get('captcha_required'):
-            challenge_url = '{0}api/videos/access/challenge'.format(ref2)
-            challenge = self.net.http_POST(challenge_url, headers=headers, form_data={}).json
+        attest_data = self._make_attestation(challenge, profile['client'])
+        attest_url = '{}/api/videos/access/attest'.format(api_base)
+        try:
+            resp = self.net.http_POST(attest_url, form_data=attest_data, headers=api_headers, jdata=True, timeout=10)
+            attest = json.loads(resp.content)
+        except Exception as e:
+            raise ResolverError('Erro no attest: {}'.format(e))
 
-            attest_url = '{0}api/videos/access/attest'.format(ref2)
-            attest = self.net.http_POST(attest_url, headers=headers, form_data=self.wn(challenge), jdata=True).json
-            fingerprint = {
-                'token': attest['token'],
-                'viewer_id': attest['viewer_id'],
-                'device_id': attest['device_id'],
-                'confidence': attest['confidence'],
-            }
+        viewer_id = attest.get('viewer_id', '')
+        device_id = attest.get('device_id', '')
+        fingerprint = {
+            'token': attest.get('token'),
+            'viewer_id': viewer_id,
+            'device_id': device_id,
+            'confidence': attest.get('confidence')
+        }
 
-            captcha_url = '{0}api/videos/{1}/embed/captcha'.format(ref2, media_id)
-            captcha = self.net.http_POST(captcha_url, headers=headers, form_data={'fingerprint': fingerprint}, jdata=True).json
-            solution = self.er(captcha['pow_nonce'], captcha['pow_difficulty'])
-            if solution is None:
-                raise ResolverError('Unable to solve captcha')
+        api_headers['Cookie'] = 'byse_viewer_id={}; byse_device_id={}'.format(viewer_id, device_id)
 
-            verify_url = '{0}api/videos/{1}/embed/captcha/verify'.format(ref2, media_id)
-            post_data = {'pow_token': captcha['pow_token'], 'solution': solution, 'fingerprint': fingerprint}
-            verify = self.net.http_POST(verify_url, headers=headers, form_data=post_data, jdata=True).json
-            headers.update({'X-Captcha-Token': verify.get('token')})
+        print('Byse: resolvendo PoW captcha...')
+        captcha_url = '{}/api/videos/{}/embed/captcha'.format(api_base, media_id)
+        try:
+            resp = self.net.http_POST(captcha_url, form_data={'fingerprint': fingerprint}, headers=api_headers, jdata=True, timeout=10)
+            pow_data = json.loads(resp.content)
+        except Exception as e:
+            raise ResolverError('Erro ao obter PoW: {}'.format(e))
 
-            playback_url = '{0}api/videos/{1}/embed/playback'.format(ref2, media_id)
-            data = self.net.http_POST(playback_url, headers=headers, form_data={'fingerprint': fingerprint}, jdata=True).json
-        else:
-            playback_url = '{0}api/videos/{1}/embed/playback'.format(ref2, media_id)
-            data = self.net.http_POST(playback_url, headers=headers, form_data=self.fp(16, 0.6, 0.9), jdata=True).json
+        solution = self._solve_pow(pow_data.get('pow_nonce'), pow_data.get('pow_difficulty', 0), timeout_ms=30000)
+        if solution is None:
+            raise ResolverError('Timeout ao resolver PoW')
 
-        sources = data.get('sources')
+        verify_url = '{}/api/videos/{}/embed/captcha/verify'.format(api_base, media_id)
+        verify_payload = {
+            'pow_token': pow_data.get('pow_token'),
+            'solution': solution,
+            'fingerprint': fingerprint
+        }
+        try:
+            resp = self.net.http_POST(verify_url, form_data=verify_payload, headers=api_headers, jdata=True, timeout=10)
+            verify = json.loads(resp.content)
+        except Exception as e:
+            raise ResolverError('Erro na verificacao do captcha: {}'.format(e))
+
+        if verify.get('status') != 'ok':
+            raise ResolverError('Falha na verificacao do PoW')
+        captcha_token = verify.get('token')
+
+        playback_headers = api_headers.copy()
+        playback_headers['X-Captcha-Token'] = captcha_token
+
+        playback_url = '{}/api/videos/{}/embed/playback'.format(api_base, media_id)
+        try:
+            resp = self.net.http_POST(playback_url, form_data={'fingerprint': fingerprint}, headers=playback_headers, jdata=True, timeout=10)
+            playback = json.loads(resp.content)
+        except Exception as e:
+            raise ResolverError('Erro no playback: {}'.format(e))
+
+        sources = playback.get('sources')
         if sources:
-            sources = [(x.get('label'), x.get('url')) for x in sources]
-            uri = helpers.pick_source(helpers.sort_sources_list(sources))
-            if uri.startswith('/'):
-                uri = urllib_parse.urljoin(ref2, uri)
+            source_list = [(x.get('label'), x.get('url')) for x in sources]
+            uri = helpers.pick_source(helpers.sort_sources_list(source_list))
             url = helpers.get_redirect_url(uri, headers=headers)
             return url + helpers.append_headers(headers)
-        pd = data.get('playback')
+
+        pd = playback.get('playback')
         if pd:
             iv = self.ft(pd.get('iv'))
             key = self.xn(pd.get('key_parts'), pd.get('version'))
@@ -113,24 +171,25 @@ class ByseResolver(ResolveUrl):
             ct = json.loads(ct.decode('latin-1'))
             sources = ct.get('sources')
             if sources:
-                sources = [(x.get('label'), x.get('url')) for x in sources]
-                uri = helpers.pick_source(helpers.sort_sources_list(sources))
-                headers.pop('X-Embed-Parent')
-                if 'X-Captcha-Token' in headers.keys():
-                    headers.pop('X-Captcha-Token')
+                source_list = [(x.get('label'), x.get('url')) for x in sources]
+                uri = helpers.pick_source(helpers.sort_sources_list(source_list))
                 return uri + helpers.append_headers(headers)
 
-        raise ResolverError('Video Link Not Found')
+        raise ResolverError('Nenhuma fonte de video encontrada')
 
     def get_url(self, host, media_id):
-        redirect_domains = ['boosteradx.online', 'byse.sx']
-        if host in redirect_domains:
-            host = 'streamlyplayer.online'
-        return self._default_get_url(host, media_id, 'https://{host}/e/{media_id}')
+        redirect_map = {
+            'boosteradx.online': 'streamlyplayer.online',
+            'byse.sx': 'streamlyplayer.online'
+        }
+        if host in redirect_map:
+            host = redirect_map[host]
+        return 'https://{}/e/{}'.format(host, media_id)
 
     @staticmethod
     def ft(e):
-        return helpers.b64urldecode(e, binary=True)
+        t = e.replace('-', '+').replace('_', '/')
+        return helpers.b64decode(t, binary=True)
 
     def xn(self, e, v):
         if v:
@@ -140,135 +199,155 @@ class ByseResolver(ResolveUrl):
         return b''.join(t)
 
     @staticmethod
-    def fp(x, y, z):
-        from binascii import hexlify
-        from hashlib import sha256
-        from os import urandom
-        from time import time
-        from random import uniform
-        v_id = hexlify(urandom(x)).decode()
-        d_id = hexlify(urandom(x)).decode()
-        ctime = int(time())
-        t_data = {
-            'viewer_id': v_id,
-            'device_id': d_id,
-            'confidence': round(uniform(y, z), 2),
-            'iat': ctime,
-            'exp': ctime + 600
-        }
-        t_bdata = helpers.b64urlencode(json.dumps(t_data), strip=True)
-        t_sig = helpers.b64urlencode(sha256(t_bdata.encode()).digest(), strip=True)
-        token = '{0}.{1}'.format(t_bdata, t_sig)
-        t_data.update({'token': token})
-        t_data.pop('iat')
-        t_data.pop('exp')
-        return {'fingerprint': t_data}
+    def _get_base(url):
+        p = urllib_parse.urlparse(url)
+        return '{}://{}'.format(p.scheme, p.netloc)
 
     @staticmethod
-    def wn(ch):
-        from resolveurl.lib.ecdsa import SigningKey, NIST256p
-        from hashlib import sha256
-        sk = SigningKey.generate(curve=NIST256p, hashfunc=sha256)
-        vk = sk.verifying_key.pubkey.point
-        signature = sk.sign(ch.get('nonce').encode(), hashfunc=sha256)
-        pub = {
-            'crv': 'P-256', 'ext': True, 'key_ops': ['verify'], 'kty': 'EC',
-            'x': helpers.b64urlencode(vk.x().to_bytes(32, 'big'), strip=True),
-            'y': helpers.b64urlencode(vk.y().to_bytes(32, 'big'), strip=True),
-        }
-        sig = helpers.b64urlencode(signature, strip=True)
-        return {
-            'viewer_id': '',
-            'device_id': '',
-            'challenge_id': ch['challenge_id'],
-            'nonce': ch['nonce'],
-            'signature': sig,
-            'public_key': pub,
-        }
+    def _b64url_encode(data):
+        return base64.b64encode(data).decode().replace('+', '-').replace('/', '_').replace('=', '')
 
     @staticmethod
-    def re(t, e):
-        m = 0xFFFFFFFF
-        return (t << e | t >> (32 - e)) & m
+    def _b64url_decode(s):
+        s = s.replace('-', '+').replace('_', '/')
+        padding = (4 - len(s) % 4) % 4
+        return base64.b64decode(s + '=' * padding)
 
-    def ye(self, t):
-        m = 0xFFFFFFFF
-        t[0] = (t[0] + t[1]) & m
-        t[3] = self.re(t[3] ^ t[0], 16)
-        t[2] = (t[2] + t[3]) & m
-        t[1] = self.re(t[1] ^ t[2], 12)
-        t[0] = (t[0] + t[1]) & m
-        t[3] = self.re(t[3] ^ t[0], 8)
-        t[2] = (t[2] + t[3]) & m
-        t[1] = self.re(t[1] ^ t[2], 7)
+    _BE = 512
+    _LT = _BE - 1
+    _DR = 2
+    _LR = 2654435761
+    _HR = 2246822519
 
-    def gr(self, t):
-        m = 0xFFFFFFFF
-        e = [1779033703, 3144134277, 1013904242, 2773480762]
-        be, lt, dr, lr, hr = 512, 511, 2, 2654435761, 2246822519
-        for i in t:
-            e[0] = (e[0] + i) & m
-            e[0] = self.re(e[0], 7)
-            self.ye(e)
+    @classmethod
+    def _re(cls, t, e):
+        return ((t << e) | (t >> (32 - e))) & 0xFFFFFFFF
+
+    @classmethod
+    def _ht(cls, t, e):
+        return (t * e) & 0xFFFFFFFF
+
+    @classmethod
+    def _ye(cls, t):
+        t[0] = (t[0] + t[1]) & 0xFFFFFFFF
+        t[3] = cls._re(t[3] ^ t[0], 16)
+        t[2] = (t[2] + t[3]) & 0xFFFFFFFF
+        t[1] = cls._re(t[1] ^ t[2], 12)
+        t[0] = (t[0] + t[1]) & 0xFFFFFFFF
+        t[3] = cls._re(t[3] ^ t[0], 8)
+        t[2] = (t[2] + t[3]) & 0xFFFFFFFF
+        t[1] = cls._re(t[1] ^ t[2], 7)
+
+    @classmethod
+    def _hash(cls, data):
+        M = 0xFFFFFFFF
+        e0, e1, e2, e3 = 1779033703, 3144134277, 1013904242, 2773480762
+
+        def ye():
+            nonlocal e0, e1, e2, e3
+            e0 = (e0 + e1) & M
+            v = e3 ^ e0; e3 = ((v << 16) | (v >> 16)) & M
+            e2 = (e2 + e3) & M
+            v = e1 ^ e2; e1 = ((v << 12) | (v >> 20)) & M
+            e0 = (e0 + e1) & M
+            v = e3 ^ e0; e3 = ((v << 8) | (v >> 24)) & M
+            e2 = (e2 + e3) & M
+            v = e1 ^ e2; e1 = ((v << 7) | (v >> 25)) & M
+
+        for b in data:
+            e0 = (e0 + b) & M
+            e0 = ((e0 << 7) | (e0 >> 25)) & M
+            ye()
         for _ in range(8):
-            self.ye(e)
-        r = [0] * be
-        for i in range(be):
-            self.ye(e)
-            r[i] = (e[0] ^ e[2]) & m
-        for i in range(dr):
-            for s in range(be):
-                a = r[s] & lt
-                c = (r[s] + r[a]) & m
-                c = self.re(c, 13)
-                c = (c ^ ((r[(s + 1) & lt] * lr) & m)) & m
+            ye()
+
+        BE = 512
+        LT = BE - 1
+        r = [0] * BE
+        for i in range(BE):
+            ye()
+            r[i] = (e0 ^ e2) & M
+
+        LR = 2654435761
+        HR = 2246822519
+        for _ in range(2):
+            for s in range(BE):
+                a = r[s] & LT
+                c = (r[s] + r[a]) & M
+                c = ((c << 13) | (c >> 19)) & M
+                c = (c ^ ((r[(s + 1) & LT] * LR) & M)) & M
                 r[s] = c
-                e[0] = (e[0] ^ c) & m
-                self.ye(e)
+                e0 = (e0 ^ c) & M
+                ye()
+
         n = [0] * 8
-        o = int(be / 8)
+        o = BE // 8
         for i in range(8):
-            self.ye(e)
-            s = e[0]
+            ye()
+            s2 = e0
             a = i * o
             for c in range(o):
                 d = r[a + c]
-                s = (s + d) & m
-                s = self.re(s, 5)
-                s = (s ^ ((d * hr) & m)) & m
-            n[i] = (s ^ e[2]) & m
+                s2 = (s2 + d) & M
+                s2 = ((s2 << 5) | (s2 >> 27)) & M
+                s2 = (s2 ^ ((d * HR) & M)) & M
+            n[i] = (s2 ^ e2) & M
         return n
 
-    @staticmethod
-    def wr(t):
-        e = 0
-        for r in range(len(t)):
-            n = int(t[r])
+    @classmethod
+    def _lzbits(cls, t):
+        bits = 0
+        for n in t:
             if n == 0:
-                e += 32
+                bits += 32
                 continue
-            return e + (32 - n.bit_length())
-        return e
+            return bits + (32 - n.bit_length())
+        return bits
 
-    @staticmethod
-    def yr(t):
-        e = [0] * len(t)
-        for r in range(len(t)):
-            e[r] = ord(t[r]) & 255
-        return e
-
-    def er(self, t, e, r=20.0):
-        import time
-        if e <= 0:
-            return '0'
-        prefix = t + ':'
+    @classmethod
+    def _solve_pow(cls, nonce, difficulty, timeout_ms=30000):
+        if difficulty <= 0:
+            return "0"
+        prefix = (nonce + ":").encode('utf-8')
         start = time.time()
+        timeout_s = timeout_ms / 1000.0
+        _hash = cls._hash
+        _lzbits = cls._lzbits
         s = 0
         while True:
-            for _ in range(1024):
-                d = self.gr(self.yr(prefix + str(s)))
-                if self.wr(d) >= e:
+            for _ in range(4096):
+                data = prefix + str(s).encode('utf-8')
+                if _lzbits(_hash(data)) >= difficulty:
                     return str(s)
                 s += 1
-            if time.time() - start > r:
+            if (time.time() - start) > timeout_s:
                 return None
+
+    def _make_attestation(self, challenge, client_data):
+        sk = SigningKey.generate(curve=NIST256p)
+        vk = sk.get_verifying_key()
+        nonce_bytes = str(challenge.get("nonce", "")).encode('utf-8')
+        signature = sk.sign(nonce_bytes, hashfunc=hashlib.sha256)
+        pub_bytes = vk.to_string()
+        x = self._b64url_encode(pub_bytes[:32])
+        y = self._b64url_encode(pub_bytes[32:])
+
+        return {
+            "viewer_id": "",
+            "device_id": "",
+            "challenge_id": challenge.get("challenge_id"),
+            "nonce": challenge.get("nonce"),
+            "signature": self._b64url_encode(signature),
+            "public_key": {
+                "alg": "ES256",
+                "crv": "P-256",
+                "ext": True,
+                "key_ops": ["verify"],
+                "kty": "EC",
+                "x": x,
+                "y": y
+            },
+            "client": client_data,
+            "storage": {},
+            "attributes": {"entropy": "high"}
+        }
