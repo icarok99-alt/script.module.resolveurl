@@ -63,13 +63,6 @@ class ByseResolver(ResolveUrl):
 
         profile = _get_profile()
         client = profile.get('client', {})
-        print('Byse: profile selecionado -> {} | {} {} | {}x{}'.format(
-            client.get('platform', 'Unknown'),
-            client.get('model', 'Desktop'),
-            client.get('ua_full_version', ''),
-            client.get('screen_width', ''),
-            client.get('screen_height', '')
-        ))
 
         headers = {
             'User-Agent': profile['ua'],
