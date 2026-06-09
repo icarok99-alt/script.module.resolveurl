@@ -17,11 +17,24 @@
 """
 
 import json
+import os
+from random import choice
 from six.moves import urllib_parse
 from resolveurl.lib import helpers
 from resolveurl.lib.aesgcm import python_aesgcm
 from resolveurl import common
 from resolveurl.resolver import ResolveUrl, ResolverError
+
+_PROFILES_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'lib', 'byse_profiles.json')
+try:
+    with open(_PROFILES_PATH, 'r') as _f:
+        _PROFILES = json.load(_f)
+except Exception:
+    _PROFILES = []
+
+
+def _get_profile():
+    return choice(_PROFILES)
 
 
 class ByseResolver(ResolveUrl):
@@ -47,60 +60,63 @@ class ByseResolver(ResolveUrl):
     def get_media_url(self, host, media_id):
         web_url = self.get_url(host, media_id)
         ref = urllib_parse.urljoin(web_url, '/')
+
+        profile = _get_profile()
+        client = profile.get('client', {})
+        print('Byse: profile selecionado -> {} | {} {} | {}x{}'.format(
+            client.get('platform', 'Unknown'),
+            client.get('model', 'Desktop'),
+            client.get('ua_full_version', ''),
+            client.get('screen_width', ''),
+            client.get('screen_height', '')
+        ))
+
         headers = {
-            'User-Agent': common.RAND_UA,
-            'Referer': ref,
-            'Origin': ref[:-1]
-        }
-        details_url = '{0}api/videos/{1}/embed/details'.format(ref, media_id)
-        details = self.net.http_GET(details_url, headers=headers).json
-        embed_url = details.get('embed_frame_url')
-        ref2 = urllib_parse.urljoin(embed_url, '/')
-        headers.update({
-            'Referer': ref2,
-            'Origin': ref2[:-1],
+            'User-Agent': profile['ua'],
+            'Accept': 'application/json, text/plain, */*',
+            'Origin': ref[:-1],
+            'Referer': web_url,
+            'X-Embed-Origin': urllib_parse.urlparse(web_url).netloc,
+            'X-Embed-Referer': web_url,
             'X-Embed-Parent': web_url
-        })
+        }
 
-        settings_url = '{0}api/videos/{1}/embed/settings'.format(ref2, media_id)
-        settings = self.net.http_GET(settings_url, headers=headers).json
+        challenge_url = '{0}api/videos/access/challenge'.format(ref)
+        challenge = self.net.http_POST(challenge_url, headers=headers, form_data={}).json
 
-        if settings.get('captcha_required'):
-            challenge_url = '{0}api/videos/access/challenge'.format(ref2)
-            challenge = self.net.http_POST(challenge_url, headers=headers, form_data={}).json
+        attest_url = '{0}api/videos/access/attest'.format(ref)
+        attest = self.net.http_POST(attest_url, headers=headers, form_data=self.wn(challenge, client), jdata=True).json
+        fingerprint = {
+            'token': attest['token'],
+            'viewer_id': attest['viewer_id'],
+            'device_id': attest['device_id'],
+            'confidence': attest['confidence'],
+        }
 
-            attest_url = '{0}api/videos/access/attest'.format(ref2)
-            attest = self.net.http_POST(attest_url, headers=headers, form_data=self.wn(challenge), jdata=True).json
-            fingerprint = {
-                'token': attest['token'],
-                'viewer_id': attest['viewer_id'],
-                'device_id': attest['device_id'],
-                'confidence': attest['confidence'],
-            }
+        headers['Cookie'] = 'byse_viewer_id={}; byse_device_id={}'.format(
+            attest['viewer_id'], attest['device_id']
+        )
 
-            captcha_url = '{0}api/videos/{1}/embed/captcha'.format(ref2, media_id)
-            captcha = self.net.http_POST(captcha_url, headers=headers, form_data={'fingerprint': fingerprint}, jdata=True).json
-            solution = self.er(captcha['pow_nonce'], captcha['pow_difficulty'])
-            if solution is None:
-                raise ResolverError('Unable to solve captcha')
+        captcha_url = '{0}api/videos/{1}/embed/captcha'.format(ref, media_id)
+        captcha = self.net.http_POST(captcha_url, headers=headers, form_data={'fingerprint': fingerprint}, jdata=True).json
+        solution = self.er(captcha['pow_nonce'], captcha['pow_difficulty'])
+        if solution is None:
+            raise ResolverError('Unable to solve captcha')
 
-            verify_url = '{0}api/videos/{1}/embed/captcha/verify'.format(ref2, media_id)
-            post_data = {'pow_token': captcha['pow_token'], 'solution': solution, 'fingerprint': fingerprint}
-            verify = self.net.http_POST(verify_url, headers=headers, form_data=post_data, jdata=True).json
-            headers.update({'X-Captcha-Token': verify.get('token')})
+        verify_url = '{0}api/videos/{1}/embed/captcha/verify'.format(ref, media_id)
+        post_data = {'pow_token': captcha['pow_token'], 'solution': solution, 'fingerprint': fingerprint}
+        verify = self.net.http_POST(verify_url, headers=headers, form_data=post_data, jdata=True).json
+        headers.update({'X-Captcha-Token': verify.get('token')})
 
-            playback_url = '{0}api/videos/{1}/embed/playback'.format(ref2, media_id)
-            data = self.net.http_POST(playback_url, headers=headers, form_data={'fingerprint': fingerprint}, jdata=True).json
-        else:
-            playback_url = '{0}api/videos/{1}/embed/playback'.format(ref2, media_id)
-            data = self.net.http_POST(playback_url, headers=headers, form_data=self.fp(16, 0.6, 0.9), jdata=True).json
+        playback_url = '{0}api/videos/{1}/embed/playback'.format(ref, media_id)
+        data = self.net.http_POST(playback_url, headers=headers, form_data={'fingerprint': fingerprint}, jdata=True).json
 
         sources = data.get('sources')
         if sources:
             sources = [(x.get('label'), x.get('url')) for x in sources]
             uri = helpers.pick_source(helpers.sort_sources_list(sources))
             if uri.startswith('/'):
-                uri = urllib_parse.urljoin(ref2, uri)
+                uri = urllib_parse.urljoin(ref, uri)
             url = helpers.get_redirect_url(uri, headers=headers)
             return url + helpers.append_headers(headers)
         pd = data.get('playback')
@@ -140,38 +156,14 @@ class ByseResolver(ResolveUrl):
         return b''.join(t)
 
     @staticmethod
-    def fp(x, y, z):
-        from binascii import hexlify
-        from hashlib import sha256
-        from os import urandom
-        from time import time
-        from random import uniform
-        v_id = hexlify(urandom(x)).decode()
-        d_id = hexlify(urandom(x)).decode()
-        ctime = int(time())
-        t_data = {
-            'viewer_id': v_id,
-            'device_id': d_id,
-            'confidence': round(uniform(y, z), 2),
-            'iat': ctime,
-            'exp': ctime + 600
-        }
-        t_bdata = helpers.b64urlencode(json.dumps(t_data), strip=True)
-        t_sig = helpers.b64urlencode(sha256(t_bdata.encode()).digest(), strip=True)
-        token = '{0}.{1}'.format(t_bdata, t_sig)
-        t_data.update({'token': token})
-        t_data.pop('iat')
-        t_data.pop('exp')
-        return {'fingerprint': t_data}
-
-    @staticmethod
-    def wn(ch):
+    def wn(ch, client_data=None):
         from resolveurl.lib.ecdsa import SigningKey, NIST256p
         from hashlib import sha256
         sk = SigningKey.generate(curve=NIST256p, hashfunc=sha256)
         vk = sk.verifying_key.pubkey.point
         signature = sk.sign(ch.get('nonce').encode(), hashfunc=sha256)
         pub = {
+            'alg': 'ES256',
             'crv': 'P-256', 'ext': True, 'key_ops': ['verify'], 'kty': 'EC',
             'x': helpers.b64urlencode(vk.x().to_bytes(32, 'big'), strip=True),
             'y': helpers.b64urlencode(vk.y().to_bytes(32, 'big'), strip=True),
@@ -184,6 +176,9 @@ class ByseResolver(ResolveUrl):
             'nonce': ch['nonce'],
             'signature': sig,
             'public_key': pub,
+            'client': client_data or {},
+            'storage': {},
+            'attributes': {'entropy': 'high'}
         }
 
     @staticmethod
