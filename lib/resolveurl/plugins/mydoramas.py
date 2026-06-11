@@ -1,6 +1,6 @@
 """
     Plugin for ResolveURL
-    Copyright (C) 2025
+    Copyright (C) icarok99 2026
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -22,9 +22,9 @@ from resolveurl.resolver import ResolveUrl, ResolverError
 
 class MyDoramasResolver(ResolveUrl):
     name = 'mydoramas'
-    domains = ['ondemand.mylifekorea.shop', 'forks-doramas.mylifekorea.shop']
+    domains = ['ondemand.mylifekorea.shop', 'forks-doramas.mylifekorea.shop', 'ondemand.telabrasil.shop', 'forks-doramas.telabrasil.shop']
     
-    pattern = r'(?://|\.)((?:ondemand|forks-doramas)\.mylifekorea\.shop)/(.+\.m3u8(?:\?.*)?)'
+    pattern = r'(?://|\.)((?:ondemand|forks-doramas)\.(?:mylifekorea|telabrasil)\.shop)/(.+\.m3u8(?:\?.*)?)'
 
     def get_media_url(self, host, media_id):
         hls_url = f"https://{host}/{media_id}"
