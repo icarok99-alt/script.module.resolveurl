@@ -24,8 +24,8 @@ from resolveurl.lib import helpers
 
 class EmbedPlayerResolver(ResolveUrl):
     name = "EmbedPlayer"
-    domains = ["embedplayer1.xyz", "llanfairpwllgwyngyll.com"]
-    pattern = r'https?://(?:www\.)?(embedplayer1\.xyz|llanfairpwllgwyngyll\.com)/video/([A-Za-z0-9]+)'
+    domains = ["embedplayer1.xyz", "llanfairpwllgwyngyll.com", "llanfairpwllgwyngy.com"]
+    pattern = r'https?://(?:www\.)?(embedplayer1\.xyz|llanfairpwllgwyngyl*\.com)/video/([A-Za-z0-9]+)'
 
     def __init__(self):
         self.user_agent = (
