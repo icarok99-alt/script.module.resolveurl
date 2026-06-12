@@ -18,6 +18,8 @@
 
 import json
 import os
+import base64
+import hashlib
 from random import choice
 from six.moves import urllib_parse
 from resolveurl.lib import helpers
@@ -75,10 +77,12 @@ class ByseResolver(ResolveUrl):
         }
 
         challenge_url = '{0}api/videos/access/challenge'.format(ref)
-        challenge = self.net.http_POST(challenge_url, headers=headers, form_data={}).json
+        resp = self.net.http_POST(challenge_url, headers=headers, form_data={})
+        challenge = json.loads(resp.content)
 
         attest_url = '{0}api/videos/access/attest'.format(ref)
-        attest = self.net.http_POST(attest_url, headers=headers, form_data=self.wn(challenge, client), jdata=True).json
+        resp = self.net.http_POST(attest_url, headers=headers, form_data=self.wn(challenge, client), jdata=True)
+        attest = json.loads(resp.content)
         fingerprint = {
             'token': attest['token'],
             'viewer_id': attest['viewer_id'],
@@ -91,18 +95,21 @@ class ByseResolver(ResolveUrl):
         )
 
         captcha_url = '{0}api/videos/{1}/embed/captcha'.format(ref, media_id)
-        captcha = self.net.http_POST(captcha_url, headers=headers, form_data={'fingerprint': fingerprint}, jdata=True).json
+        resp = self.net.http_POST(captcha_url, headers=headers, form_data={'fingerprint': fingerprint}, jdata=True)
+        captcha = json.loads(resp.content)
         solution = self.er(captcha['pow_nonce'], captcha['pow_difficulty'])
         if solution is None:
             raise ResolverError('Unable to solve captcha')
 
         verify_url = '{0}api/videos/{1}/embed/captcha/verify'.format(ref, media_id)
         post_data = {'pow_token': captcha['pow_token'], 'solution': solution, 'fingerprint': fingerprint}
-        verify = self.net.http_POST(verify_url, headers=headers, form_data=post_data, jdata=True).json
+        resp = self.net.http_POST(verify_url, headers=headers, form_data=post_data, jdata=True)
+        verify = json.loads(resp.content)
         headers.update({'X-Captcha-Token': verify.get('token')})
 
         playback_url = '{0}api/videos/{1}/embed/playback'.format(ref, media_id)
-        data = self.net.http_POST(playback_url, headers=headers, form_data={'fingerprint': fingerprint}, jdata=True).json
+        resp = self.net.http_POST(playback_url, headers=headers, form_data={'fingerprint': fingerprint}, jdata=True)
+        data = json.loads(resp.content)
 
         sources = data.get('sources')
         if sources:
@@ -139,7 +146,8 @@ class ByseResolver(ResolveUrl):
 
     @staticmethod
     def ft(e):
-        return helpers.b64urldecode(e, binary=True)
+        t = e.replace('-', '+').replace('_', '/')
+        return helpers.b64decode(t, binary=True)
 
     def xn(self, e, v):
         if v:
@@ -151,17 +159,16 @@ class ByseResolver(ResolveUrl):
     @staticmethod
     def wn(ch, client_data=None):
         from resolveurl.lib.ecdsa import SigningKey, NIST256p
-        from hashlib import sha256
-        sk = SigningKey.generate(curve=NIST256p, hashfunc=sha256)
+        sk = SigningKey.generate(curve=NIST256p, hashfunc=hashlib.sha256)
         vk = sk.verifying_key.pubkey.point
-        signature = sk.sign(ch.get('nonce').encode(), hashfunc=sha256)
+        signature = sk.sign(ch.get('nonce').encode(), hashfunc=hashlib.sha256)
         pub = {
             'alg': 'ES256',
             'crv': 'P-256', 'ext': True, 'key_ops': ['verify'], 'kty': 'EC',
-            'x': helpers.b64urlencode(vk.x().to_bytes(32, 'big'), strip=True),
-            'y': helpers.b64urlencode(vk.y().to_bytes(32, 'big'), strip=True),
+            'x': base64.b64encode(vk.x().to_bytes(32, 'big')).decode().replace('+', '-').replace('/', '_').replace('=', ''),
+            'y': base64.b64encode(vk.y().to_bytes(32, 'big')).decode().replace('+', '-').replace('/', '_').replace('=', ''),
         }
-        sig = helpers.b64urlencode(signature, strip=True)
+        sig = base64.b64encode(signature).decode().replace('+', '-').replace('/', '_').replace('=', '')
         return {
             'viewer_id': '',
             'device_id': '',
