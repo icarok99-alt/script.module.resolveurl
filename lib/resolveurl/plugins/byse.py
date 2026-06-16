@@ -39,6 +39,71 @@ def _get_profile():
     return choice(_PROFILES)
 
 
+def _re(t, e):
+    return (t << e | t >> (32 - e)) & 0xFFFFFFFF
+
+
+def _ye(t):
+    m = 0xFFFFFFFF
+    t[0] = (t[0] + t[1]) & m
+    t[3] = _re(t[3] ^ t[0], 16)
+    t[2] = (t[2] + t[3]) & m
+    t[1] = _re(t[1] ^ t[2], 12)
+    t[0] = (t[0] + t[1]) & m
+    t[3] = _re(t[3] ^ t[0], 8)
+    t[2] = (t[2] + t[3]) & m
+    t[1] = _re(t[1] ^ t[2], 7)
+
+
+def _gr(t):
+    m = 0xFFFFFFFF
+    e = [1779033703, 3144134277, 1013904242, 2773480762]
+    be, lt, dr, lr, hr = 512, 511, 2, 2654435761, 2246822519
+    for i in t:
+        e[0] = (e[0] + i) & m
+        e[0] = _re(e[0], 7)
+        _ye(e)
+    for _ in range(8):
+        _ye(e)
+    r = [0] * be
+    for i in range(be):
+        _ye(e)
+        r[i] = (e[0] ^ e[2]) & m
+    for i in range(dr):
+        for s in range(be):
+            a = r[s] & lt
+            c = (r[s] + r[a]) & m
+            c = _re(c, 13)
+            c = (c ^ ((r[(s + 1) & lt] * lr) & m)) & m
+            r[s] = c
+            e[0] = (e[0] ^ c) & m
+            _ye(e)
+    n = [0] * 8
+    o = int(be / 8)
+    for i in range(8):
+        _ye(e)
+        s = e[0]
+        a = i * o
+        for c in range(o):
+            d = r[a + c]
+            s = (s + d) & m
+            s = _re(s, 5)
+            s = (s ^ ((d * hr) & m)) & m
+        n[i] = (s ^ e[2]) & m
+    return n
+
+
+def _wr(t):
+    e = 0
+    for r in range(len(t)):
+        n = int(t[r])
+        if n == 0:
+            e += 32
+            continue
+        return e + (32 - n.bit_length())
+    return e
+
+
 class ByseResolver(ResolveUrl):
     name = 'Byse'
     domains = [
@@ -181,77 +246,6 @@ class ByseResolver(ResolveUrl):
             'attributes': {'entropy': 'high'}
         }
 
-    @staticmethod
-    def re(t, e):
-        m = 0xFFFFFFFF
-        return (t << e | t >> (32 - e)) & m
-
-    def ye(self, t):
-        m = 0xFFFFFFFF
-        t[0] = (t[0] + t[1]) & m
-        t[3] = self.re(t[3] ^ t[0], 16)
-        t[2] = (t[2] + t[3]) & m
-        t[1] = self.re(t[1] ^ t[2], 12)
-        t[0] = (t[0] + t[1]) & m
-        t[3] = self.re(t[3] ^ t[0], 8)
-        t[2] = (t[2] + t[3]) & m
-        t[1] = self.re(t[1] ^ t[2], 7)
-
-    def gr(self, t):
-        m = 0xFFFFFFFF
-        e = [1779033703, 3144134277, 1013904242, 2773480762]
-        be, lt, dr, lr, hr = 512, 511, 2, 2654435761, 2246822519
-        for i in t:
-            e[0] = (e[0] + i) & m
-            e[0] = self.re(e[0], 7)
-            self.ye(e)
-        for _ in range(8):
-            self.ye(e)
-        r = [0] * be
-        for i in range(be):
-            self.ye(e)
-            r[i] = (e[0] ^ e[2]) & m
-        for i in range(dr):
-            for s in range(be):
-                a = r[s] & lt
-                c = (r[s] + r[a]) & m
-                c = self.re(c, 13)
-                c = (c ^ ((r[(s + 1) & lt] * lr) & m)) & m
-                r[s] = c
-                e[0] = (e[0] ^ c) & m
-                self.ye(e)
-        n = [0] * 8
-        o = int(be / 8)
-        for i in range(8):
-            self.ye(e)
-            s = e[0]
-            a = i * o
-            for c in range(o):
-                d = r[a + c]
-                s = (s + d) & m
-                s = self.re(s, 5)
-                s = (s ^ ((d * hr) & m)) & m
-            n[i] = (s ^ e[2]) & m
-        return n
-
-    @staticmethod
-    def wr(t):
-        e = 0
-        for r in range(len(t)):
-            n = int(t[r])
-            if n == 0:
-                e += 32
-                continue
-            return e + (32 - n.bit_length())
-        return e
-
-    @staticmethod
-    def yr(t):
-        e = [0] * len(t)
-        for r in range(len(t)):
-            e[r] = ord(t[r]) & 255
-        return e
-
     def er(self, t, e, r=20.0):
         import time
         if e <= 0:
@@ -260,9 +254,8 @@ class ByseResolver(ResolveUrl):
         start = time.time()
         s = 0
         while True:
-            for _ in range(1024):
-                d = self.gr(self.yr(prefix + str(s)))
-                if self.wr(d) >= e:
+            for _ in range(4096):
+                if _wr(_gr((prefix + str(s)).encode())) >= e:
                     return str(s)
                 s += 1
             if time.time() - start > r:
