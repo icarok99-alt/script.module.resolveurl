@@ -39,69 +39,96 @@ def _get_profile():
     return choice(_PROFILES)
 
 
-def _re(t, e):
-    return (t << e | t >> (32 - e)) & 0xFFFFFFFF
+def _hash(data: bytes):
+    M  = 0xFFFFFFFF
+    LR = 2654435761
+    HR = 2246822519
 
+    e0 = 1779033703
+    e1 = 3144134277
+    e2 = 1013904242
+    e3 = 2773480762
 
-def _ye(t):
-    m = 0xFFFFFFFF
-    t[0] = (t[0] + t[1]) & m
-    t[3] = _re(t[3] ^ t[0], 16)
-    t[2] = (t[2] + t[3]) & m
-    t[1] = _re(t[1] ^ t[2], 12)
-    t[0] = (t[0] + t[1]) & m
-    t[3] = _re(t[3] ^ t[0], 8)
-    t[2] = (t[2] + t[3]) & m
-    t[1] = _re(t[1] ^ t[2], 7)
+    for b in data:
+        e0 = (e0 + b) & M
+        e0 = ((e0 << 7) | (e0 >> 25)) & M
+        e0 = (e0 + e1) & M
+        t = e3 ^ e0;  e3 = ((t << 16) | (t >> 16)) & M
+        e2 = (e2 + e3) & M
+        t = e1 ^ e2;  e1 = ((t << 12) | (t >> 20)) & M
+        e0 = (e0 + e1) & M
+        t = e3 ^ e0;  e3 = ((t << 8)  | (t >> 24)) & M
+        e2 = (e2 + e3) & M
+        t = e1 ^ e2;  e1 = ((t << 7)  | (t >> 25)) & M
 
-
-def _gr(t):
-    m = 0xFFFFFFFF
-    e = [1779033703, 3144134277, 1013904242, 2773480762]
-    be, lt, dr, lr, hr = 512, 511, 2, 2654435761, 2246822519
-    for i in t:
-        e[0] = (e[0] + i) & m
-        e[0] = _re(e[0], 7)
-        _ye(e)
     for _ in range(8):
-        _ye(e)
-    r = [0] * be
-    for i in range(be):
-        _ye(e)
-        r[i] = (e[0] ^ e[2]) & m
-    for i in range(dr):
-        for s in range(be):
-            a = r[s] & lt
-            c = (r[s] + r[a]) & m
-            c = _re(c, 13)
-            c = (c ^ ((r[(s + 1) & lt] * lr) & m)) & m
+        e0 = (e0 + e1) & M
+        t = e3 ^ e0;  e3 = ((t << 16) | (t >> 16)) & M
+        e2 = (e2 + e3) & M
+        t = e1 ^ e2;  e1 = ((t << 12) | (t >> 20)) & M
+        e0 = (e0 + e1) & M
+        t = e3 ^ e0;  e3 = ((t << 8)  | (t >> 24)) & M
+        e2 = (e2 + e3) & M
+        t = e1 ^ e2;  e1 = ((t << 7)  | (t >> 25)) & M
+
+    r = [0] * 512
+    for i in range(512):
+        e0 = (e0 + e1) & M
+        t = e3 ^ e0;  e3 = ((t << 16) | (t >> 16)) & M
+        e2 = (e2 + e3) & M
+        t = e1 ^ e2;  e1 = ((t << 12) | (t >> 20)) & M
+        e0 = (e0 + e1) & M
+        t = e3 ^ e0;  e3 = ((t << 8)  | (t >> 24)) & M
+        e2 = (e2 + e3) & M
+        t = e1 ^ e2;  e1 = ((t << 7)  | (t >> 25)) & M
+        r[i] = (e0 ^ e2) & M
+
+    for _ in range(2):
+        for s in range(512):
+            a = r[s] & 511
+            c = (r[s] + r[a]) & M
+            c = ((c << 13) | (c >> 19)) & M
+            c = (c ^ (r[(s + 1) & 511] * LR & M)) & M
             r[s] = c
-            e[0] = (e[0] ^ c) & m
-            _ye(e)
+            e0 = (e0 ^ c) & M
+            e0 = (e0 + e1) & M
+            t = e3 ^ e0;  e3 = ((t << 16) | (t >> 16)) & M
+            e2 = (e2 + e3) & M
+            t = e1 ^ e2;  e1 = ((t << 12) | (t >> 20)) & M
+            e0 = (e0 + e1) & M
+            t = e3 ^ e0;  e3 = ((t << 8)  | (t >> 24)) & M
+            e2 = (e2 + e3) & M
+            t = e1 ^ e2;  e1 = ((t << 7)  | (t >> 25)) & M
+
     n = [0] * 8
-    o = int(be / 8)
     for i in range(8):
-        _ye(e)
-        s = e[0]
-        a = i * o
-        for c in range(o):
-            d = r[a + c]
-            s = (s + d) & m
-            s = _re(s, 5)
-            s = (s ^ ((d * hr) & m)) & m
-        n[i] = (s ^ e[2]) & m
+        e0 = (e0 + e1) & M
+        t = e3 ^ e0;  e3 = ((t << 16) | (t >> 16)) & M
+        e2 = (e2 + e3) & M
+        t = e1 ^ e2;  e1 = ((t << 12) | (t >> 20)) & M
+        e0 = (e0 + e1) & M
+        t = e3 ^ e0;  e3 = ((t << 8)  | (t >> 24)) & M
+        e2 = (e2 + e3) & M
+        t = e1 ^ e2;  e1 = ((t << 7)  | (t >> 25)) & M
+        sv = e0
+        base = i * 64
+        for c in range(64):
+            d = r[base + c]
+            sv = (sv + d) & M
+            sv = ((sv << 5) | (sv >> 27)) & M
+            sv = (sv ^ (d * HR & M)) & M
+        n[i] = (sv ^ e2) & M
     return n
 
 
-def _wr(t):
-    e = 0
-    for r in range(len(t)):
-        n = int(t[r])
+def _lzbits(t):
+    bits = 0
+    for n in t:
         if n == 0:
-            e += 32
+            bits += 32
             continue
-        return e + (32 - n.bit_length())
-    return e
+        return bits + (32 - n.bit_length())
+    return bits
 
 
 class ByseResolver(ResolveUrl):
@@ -253,9 +280,11 @@ class ByseResolver(ResolveUrl):
         prefix = t + ':'
         start = time.time()
         s = 0
+        lzbits = _lzbits
+        hashfn = _hash
         while True:
             for _ in range(4096):
-                if _wr(_gr((prefix + str(s)).encode())) >= e:
+                if lzbits(hashfn((prefix + str(s)).encode())) >= e:
                     return str(s)
                 s += 1
             if time.time() - start > r:
