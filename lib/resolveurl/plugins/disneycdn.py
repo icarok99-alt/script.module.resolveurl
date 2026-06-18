@@ -76,25 +76,29 @@ class DisneyCDNResolver(ResolveUrl):
         except Exception as e:
             raise ResolverError(f'Erro ao interpretar JSON: {e}')
 
-        def find_urls_in_json(obj):
-            urls = []
-            if isinstance(obj, dict):
-                for v in obj.values():
-                    urls.extend(find_urls_in_json(v))
-            elif isinstance(obj, list):
-                for item in obj:
-                    urls.extend(find_urls_in_json(item))
-            elif isinstance(obj, str):
-                if 'http' in obj:
-                    urls.append(obj)
-            return urls
+        stream_url = dec_json.get('cf') if isinstance(dec_json, dict) else None
 
-        urls_found = find_urls_in_json(dec_json)
+        if not stream_url:
+            stream_url = dec_json.get('source') if isinstance(dec_json, dict) else None
 
-        if not urls_found:
-            raise ResolverError('Nenhum link de stream encontrado no JSON')
+        if not stream_url:
+            def find_urls_in_json(obj):
+                urls = []
+                if isinstance(obj, dict):
+                    for v in obj.values():
+                        urls.extend(find_urls_in_json(v))
+                elif isinstance(obj, list):
+                    for item in obj:
+                        urls.extend(find_urls_in_json(item))
+                elif isinstance(obj, str):
+                    if 'http' in obj:
+                        urls.append(obj)
+                return urls
 
-        stream_url = urls_found[0]
+            urls_found = find_urls_in_json(dec_json)
+            if not urls_found:
+                raise ResolverError('Nenhum link de stream encontrado no JSON')
+            stream_url = urls_found[0]
 
         headers.update({'Origin': referer})
         return stream_url + helpers.append_headers(headers)
