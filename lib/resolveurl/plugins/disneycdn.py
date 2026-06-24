@@ -24,6 +24,7 @@ from resolveurl.resolver import ResolveUrl, ResolverError
 from resolveurl import common
 from six.moves import urllib_parse
 from resolveurl.lib.pyaes import AESModeOfOperationCBC, Decrypter
+from resolveurl.lib import stream_proxy
 
 class DisneyCDNResolver(ResolveUrl):
     name = 'DisneyCDN'
@@ -36,7 +37,7 @@ class DisneyCDNResolver(ResolveUrl):
 
         referer = f'https://{host}/'
         headers = {
-            'User-Agent': common.FF_USER_AGENT,
+            'User-Agent': common.RAND_UA,
             'Referer': referer,
             'Origin': referer
         }
@@ -101,4 +102,9 @@ class DisneyCDNResolver(ResolveUrl):
             stream_url = urls_found[0]
 
         headers.update({'Origin': referer})
+
+        proxy = stream_proxy.get_proxy()
+        if proxy:
+            return proxy.get_proxy_url(stream_url + helpers.append_headers(headers))
+
         return stream_url + helpers.append_headers(headers)
