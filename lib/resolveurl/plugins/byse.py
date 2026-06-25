@@ -28,79 +28,109 @@ from resolveurl.lib.aesgcm import python_aesgcm
 from resolveurl import common
 from resolveurl.resolver import ResolveUrl, ResolverError
 
+def _b64h(seed):
+    return base64.b64encode(hashlib.sha256(str(seed).encode()).digest()).decode().replace('+', '-').replace('/', '_').replace('=', '')
+
+
+_ANDROID_PROFILES = [
+    {
+        "user_agent": "Mozilla/5.0 (Linux; Android 11; X96 Max+) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",
+        "model": "X96 Max+",
+        "platform_version": "11.0.0",
+        "hardware_concurrency": 4,
+        "device_memory": 2,
+        "pixel_ratio": 1,
+        "screen_width": 1280,
+        "screen_height": 720,
+        "webgl_vendor": "Google Inc. (ARM)",
+        "webgl_renderer": "ANGLE (ARM, Mali-G31 MP2, OpenGL ES 3.2)",
+        "touch_points": 1,
+        "pointer_type": "coarse",
+    },
+    {
+        "user_agent": "Mozilla/5.0 (Linux; Android 11; SM-A037F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",
+        "model": "SM-A037F",
+        "platform_version": "11.0.0",
+        "hardware_concurrency": 4,
+        "device_memory": 2,
+        "pixel_ratio": 1.5,
+        "screen_width": 720,
+        "screen_height": 1600,
+        "webgl_vendor": "Google Inc. (ARM)",
+        "webgl_renderer": "ANGLE (ARM, Mali-G57 MP1, OpenGL ES 3.2)",
+        "touch_points": 5,
+        "pointer_type": "coarse,hover,touch",
+    },
+    {
+        "user_agent": "Mozilla/5.0 (Linux; Android 10; TX6s) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",
+        "model": "TX6s",
+        "platform_version": "10.0.0",
+        "hardware_concurrency": 4,
+        "device_memory": 2,
+        "pixel_ratio": 1,
+        "screen_width": 1280,
+        "screen_height": 720,
+        "webgl_vendor": "Google Inc. (ARM)",
+        "webgl_renderer": "ANGLE (ARM, Mali-G31 MP2, OpenGL ES 3.2)",
+        "touch_points": 1,
+        "pointer_type": "coarse",
+    },
+    {
+        "user_agent": "Mozilla/5.0 (Linux; Android 10; Redmi 9A) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",
+        "model": "Redmi 9A",
+        "platform_version": "10.0.0",
+        "hardware_concurrency": 4,
+        "device_memory": 2,
+        "pixel_ratio": 1.5,
+        "screen_width": 720,
+        "screen_height": 1600,
+        "webgl_vendor": "Google Inc. (ARM)",
+        "webgl_renderer": "ANGLE (ARM, Mali-G52 MC2, OpenGL ES 3.2)",
+        "touch_points": 5,
+        "pointer_type": "coarse,hover,touch",
+    },
+]
+
+
 def generate_client():
-    if random.random() < 0.6:  # 60% Android
-        return {
-            "user_agent": "Mozilla/5.0 (Linux; Android 13; SM-G780G) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",
-            "architecture": "",
-            "bitness": "",
-            "platform": "Android",
-            "platform_version": "13.0.0",
-            "model": random.choice(["SM-G780G", "SM-S918B", "Pixel 7"]),
-            "ua_full_version": "137.0.7337.0",
-            "brand_full_versions": [
-                {"brand": "Chromium", "version": "137.0.7337.0"},
-                {"brand": "Not/A)Brand", "version": "24.0.0.0"}
-            ],
-            "pixel_ratio": 3,
-            "screen_width": 360,
-            "screen_height": 800,
-            "color_depth": 24,
-            "languages": ["pt-BR"],
-            "timezone": "America/Recife",
-            "hardware_concurrency": 8,
-            "device_memory": 8,
-            "touch_points": 5,
-            "webgl_vendor": "Google Inc. (Qualcomm)",
-            "webgl_renderer": "ANGLE (Qualcomm, Adreno (TM) 650, OpenGL ES 3.2)",
-            "canvas_hash": base64.b64encode(hashlib.sha256(str(random.random()).encode()).digest()).decode().replace("+", "-").replace("/", "_").replace("=", ""),
-            "audio_hash": base64.b64encode(hashlib.sha256(str(random.random()).encode()).digest()).decode().replace("+", "-").replace("/", "_").replace("=", ""),
-            "webgl_params_hash": base64.b64encode(hashlib.sha256(str(random.random()).encode()).digest()).decode().replace("+", "-").replace("/", "_").replace("=", ""),
-            "fonts_hash": base64.b64encode(hashlib.sha256(str(random.random()).encode()).digest()).decode().replace("+", "-").replace("/", "_").replace("=", ""),
-            "codecs_hash": base64.b64encode(hashlib.sha256(str(random.random()).encode()).digest()).decode().replace("+", "-").replace("/", "_").replace("=", ""),
-            "media_devices": "ai1ao1vi4",
-            "pointer_type": "coarse,hover,touch",
-            "extra": {
-                "vendor": "Google Inc.",
-                "appVersion": "5.0 (Linux; Android 13; SM-G780G) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36"
-            }
+    p = random.choice(_ANDROID_PROFILES)
+    ua = p["user_agent"]
+    r = random.random()
+    return {
+        "user_agent": ua,
+        "architecture": "",
+        "bitness": "",
+        "platform": "Android",
+        "platform_version": p["platform_version"],
+        "model": p["model"],
+        "ua_full_version": "137.0.7337.0",
+        "brand_full_versions": [
+            {"brand": "Chromium", "version": "137.0.7337.0"},
+            {"brand": "Not/A)Brand", "version": "24.0.0.0"}
+        ],
+        "pixel_ratio": p["pixel_ratio"],
+        "screen_width": p["screen_width"],
+        "screen_height": p["screen_height"],
+        "color_depth": 24,
+        "languages": ["pt-BR"],
+        "timezone": "America/Recife",
+        "hardware_concurrency": p["hardware_concurrency"],
+        "device_memory": p["device_memory"],
+        "touch_points": p["touch_points"],
+        "webgl_vendor": p["webgl_vendor"],
+        "webgl_renderer": p["webgl_renderer"],
+        "canvas_hash": _b64h(r),
+        "audio_hash": _b64h(r + 1),
+        "webgl_params_hash": _b64h(r + 2),
+        "fonts_hash": _b64h(r + 3),
+        "codecs_hash": _b64h(r + 4),
+        "media_devices": "ai1ao1vi4",
+        "pointer_type": p["pointer_type"],
+        "extra": {
+            "vendor": "Google Inc.",
+            "appVersion": ua[len("Mozilla/"):]
         }
-    else:  # 40% Desktop
-        return {
-            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "architecture": "x86",
-            "bitness": "64",
-            "platform": "Windows",
-            "platform_version": "10.0.0",
-            "model": "",
-            "ua_full_version": "131.0.6778.86",
-            "brand_full_versions": [
-                {"brand": "Chromium", "version": "131.0.6778.86"},
-                {"brand": "Not/A)Brand", "version": "24.0.0.0"}
-            ],
-            "pixel_ratio": 1,
-            "screen_width": 1920,
-            "screen_height": 1080,
-            "color_depth": 24,
-            "languages": ["pt-BR"],
-            "timezone": "America/Sao_Paulo",
-            "hardware_concurrency": 12,
-            "device_memory": 8,
-            "touch_points": 0,
-            "webgl_vendor": "Google Inc. (NVIDIA)",
-            "webgl_renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)",
-            "canvas_hash": base64.b64encode(hashlib.sha256(str(random.random()).encode()).digest()).decode().replace("+", "-").replace("/", "_").replace("=", ""),
-            "audio_hash": base64.b64encode(hashlib.sha256(str(random.random()).encode()).digest()).decode().replace("+", "-").replace("/", "_").replace("=", ""),
-            "webgl_params_hash": base64.b64encode(hashlib.sha256(str(random.random()).encode()).digest()).decode().replace("+", "-").replace("/", "_").replace("=", ""),
-            "fonts_hash": base64.b64encode(hashlib.sha256(str(random.random()).encode()).digest()).decode().replace("+", "-").replace("/", "_").replace("=", ""),
-            "codecs_hash": base64.b64encode(hashlib.sha256(str(random.random()).encode()).digest()).decode().replace("+", "-").replace("/", "_").replace("=", ""),
-            "media_devices": "ai1ao2vi1",
-            "pointer_type": "fine,hover",
-            "extra": {
-                "vendor": "Google Inc.",
-                "appVersion": "5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-            }
-        }
+    }
 
 
 def _re(t, e):
