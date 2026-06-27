@@ -16,19 +16,17 @@
     along with this program. If not, see <http://www.gnu.org/licenses/>.
 """
 
-import re
 from resolveurl import common
-from resolveurl.lib import helpers
-from resolveurl.resolver import ResolveUrl, ResolverError
+from resolveurl.resolver import ResolveUrl
 
 
 class MegaEmbedResolver(ResolveUrl):
     name = 'megaembed'
-    domains = ['w2.playerscdn.xyz', 'cdn.playerscdn.xyz', 'ultracine.blog', 'cinediversao.site', '72yrci50ppqp71.com']
+    domains = ['w2.playerscdn.xyz', 'cdn.playerscdn.xyz', 'ultracine.blog', 'cinediversao.site', '72yrci50ppqp71.com', 'cineveo.site']
 
     pattern = (
         r'(?://)'
-        r'([\w.-]+\.(?:playerscdn\.xyz|ultracine\.blog|cinediversao\.site|72yrci50ppqp71\.com)'
+        r'([\w.-]+\.(?:playerscdn\.xyz|ultracine\.blog|cinediversao\.site|72yrci50ppqp71\.com|cineveo\.site)'
         r'|ultracine\.blog|cinediversao\.site)'
         r'(/[^\s"\'<>]*)'
     )
@@ -46,59 +44,7 @@ class MegaEmbedResolver(ResolveUrl):
             'Accept': '*/*',
         }
 
-        if 'hls.php' in media_url or '.m3u8' in media_url:
-            try:
-                best_url = self._resolve_hls(media_url, headers)
-                if best_url:
-                    return self._with_headers(best_url, headers)
-            except Exception:
-                pass
-
         return self._with_headers(media_url, headers)
-
-    def _resolve_hls(self, url, headers):
-        try:
-            content = helpers.get_html(url, headers=headers)
-        except Exception:
-            return url
-
-        if '#EXTM3U' not in content:
-            return url
-
-        if '#EXT-X-STREAM-INF' in content:
-            best = self._pick_best_stream(url, content)
-            return best if best else url
-
-        return url
-
-    def _pick_best_stream(self, base_url, m3u8_content):
-        streams = []
-        lines = m3u8_content.splitlines()
-
-        for i, line in enumerate(lines):
-            line = line.strip()
-            if not line.startswith('#EXT-X-STREAM-INF'):
-                continue
-
-            bw_match = re.search(r'BANDWIDTH=(\d+)', line)
-            res_match = re.search(r'RESOLUTION=([\dx]+)', line)
-            bandwidth = int(bw_match.group(1)) if bw_match else 0
-            resolution = res_match.group(1) if res_match else '?x?'
-
-            for j in range(i + 1, len(lines)):
-                uri = lines[j].strip()
-                if uri and not uri.startswith('#'):
-                    if not uri.startswith('http'):
-                        base = re.sub(r'[?#].*$', '', base_url).rsplit('/', 1)[0]
-                        uri = '{}/{}'.format(base, uri)
-                    streams.append((bandwidth, resolution, uri))
-                    break
-
-        if not streams:
-            return None
-
-        streams.sort(key=lambda x: x[0], reverse=True)
-        return streams[0][2]
 
     @staticmethod
     def _with_headers(url, headers):
