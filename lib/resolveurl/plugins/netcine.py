@@ -25,7 +25,7 @@ from urllib.parse import urlparse, urljoin
 
 class NetcineResolver(ResolveUrl):
     name = 'netcine'
-    domains = ['*']
+    domains = ['netcine.com', 'netcine.app', 'netcine.live', 'netcine.net', 'netcinebw.lat', 'netcine.space']
     pattern = r'(?://|\.)(netcine[a-z0-9 -]*\.[a-z]{2,10})(/[^\s"\'<>]*)'
 
     def __init__(self):
@@ -74,6 +74,9 @@ class NetcineResolver(ResolveUrl):
 
     def get_media_url(self, host, media_id):
         web_url = self.get_url(host, media_id)
+
+        if 'netcine' not in host:
+            raise ResolverError('Domínio não é do Netcine')
 
         p = urlparse(web_url)
         origin = '{0}://{1}'.format(p.scheme, p.netloc)
